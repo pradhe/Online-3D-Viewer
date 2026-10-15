@@ -38,6 +38,15 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     timeout-minutes: 20
     steps:
+      # A deployment that never finished blocks new ones ("in progress deployment").
+      - name: Cancel stuck Pages deployments
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for sha in $(gh api "repos/$GITHUB_REPOSITORY/deployments?environment=github-pages" --jq '.[].sha' | sort -u); do
+            [ "$sha" = "$GITHUB_SHA" ] && continue
+            gh api -X POST "repos/$GITHUB_REPOSITORY/pages/deployments/$sha/cancel" >/dev/null 2>&1 && echo "Cancelled $sha" || true
+          done
       - id: deployment
         uses: actions/deploy-pages@v5
         with:
