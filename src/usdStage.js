@@ -181,8 +181,11 @@ function dependencies( data ) {
 		scan( f.references, refs );
 		scan( f.payload, refs );
 
+		// Attribute values are only fetched when they are textures. Other asset-valued
+		// data, such as assetInfo identifiers (@assets/Book/Book.usd@), are labels
+		// written relative to the project root, not links to load.
 		const value = f.default;
-		if ( typeof value === 'string' && ( IMAGE_EXT.test( cleanAsset( value ) ) || USD_EXT.test( cleanAsset( value ) ) ) ) files.add( cleanAsset( value ) );
+		if ( typeof value === 'string' && IMAGE_EXT.test( cleanAsset( value ) ) ) files.add( cleanAsset( value ) );
 
 	}
 
@@ -327,7 +330,7 @@ export async function loadUsdStage( { rootKey, rootBytes, fetchFile, manager, on
 		await Promise.all( [
 			...layer.subLayers.map( ( p ) => want( key, p, true ) ),
 			...deps.layers.map( ( p ) => want( key, p, true ) ),
-			...deps.files.map( ( p ) => want( key, p, USD_EXT.test( p ) ) ),
+			...deps.files.map( ( p ) => want( key, p, false ) ),
 		] );
 
 	};
