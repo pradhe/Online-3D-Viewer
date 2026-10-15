@@ -273,11 +273,54 @@ function setQuery( params ) {
 
 }
 
+const rootDialog = $( '#root-dialog' );
+
+/** Asks which USD file to open when a folder has several at the top level. */
+function chooseRoot( candidates ) {
+
+	return new Promise( ( resolve ) => {
+
+		hideLoading();
+		const list = $( '#root-list' );
+		list.innerHTML = '';
+
+		for ( const c of candidates ) {
+
+			const b = document.createElement( 'button' );
+			b.type = 'button';
+			b.className = 'root-option';
+			b.innerHTML = `<span></span><small>${ formatBytes( c.size ) }</small>`;
+			b.querySelector( 'span' ).textContent = c.path;
+			b.addEventListener( 'click', () => {
+
+				rootDialog.returnValue = 'picked';
+				rootDialog.close();
+				showLoading( `Loading ${ c.name }…` );
+				resolve( c );
+
+			} );
+			list.appendChild( b );
+
+		}
+
+		rootDialog.addEventListener( 'close', () => {
+
+			if ( rootDialog.returnValue !== 'picked' ) resolve( null );
+
+		}, { once: true } );
+		rootDialog.returnValue = '';
+		rootDialog.showModal();
+
+	} );
+
+}
+
 async function openFiles( files ) {
 
 	if ( ! files.length ) return;
 	const label = files.length === 1 ? files[ 0 ].name : `${ files.length } files`;
-	if ( await runLoad( label, () => loadFromFiles( files ) ) ) setQuery( {} );
+	const options = { chooseRoot, onProgress: ( text ) => showLoading( text ) };
+	if ( await runLoad( label, () => loadFromFiles( files, options ) ) ) setQuery( {} );
 
 }
 
@@ -308,6 +351,16 @@ fileInput.addEventListener( 'change', () => {
 
 } );
 $( '#btn-open' ).addEventListener( 'click', () => fileInput.click() );
+
+const folderInput = $( '#folder-input' );
+folderInput.addEventListener( 'change', () => {
+
+	openFiles( [ ...folderInput.files ] );
+	folderInput.value = '';
+
+} );
+$( '#btn-open-folder' ).addEventListener( 'click', () => folderInput.click() );
+$$( '[data-action="open-folder"]' ).forEach( ( b ) => b.addEventListener( 'click', () => folderInput.click() ) );
 $$( '[data-action="open"]' ).forEach( ( b ) => b.addEventListener( 'click', () => fileInput.click() ) );
 $$( '[data-sample]' ).forEach( ( b ) => b.addEventListener( 'click', () => {
 
@@ -341,7 +394,17 @@ function hasFiles( e ) {
 
 function readEntry( entry ) {
 
-	if ( entry.isFile ) return new Promise( ( resolve ) => entry.file( ( f ) => resolve( [ f ] ), () => resolve( [] ) ) );
+	if ( entry.isFile ) {
+
+		return new Promise( ( resolve ) => entry.file( ( f ) => {
+
+			// Keep the folder structure: USD scenes reference files by relative path.
+			f.relativePath = entry.fullPath.replace( /^\//, '' );
+			resolve( [ f ] );
+
+		}, () => resolve( [] ) ) );
+
+	}
 
 	return new Promise( ( resolve ) => {
 
@@ -907,6 +970,7 @@ function renderModelInfo() {
 	el.innerHTML = `
 		<dt>File</dt><dd>${ escapeHtml( f.name ) }</dd>
 		<dt>Format</dt><dd>${ escapeHtml( f.format.toUpperCase() ) }</dd>
+		${ f.layers > 1 ? `<dt>USD layers</dt><dd>${ fmtInt( f.layers ) }</dd>` : '' }
 		<dt>File size</dt><dd>${ formatBytes( f.size ) }</dd>
 		<dt>Objects</dt><dd>${ fmtInt( s.objects ) }</dd>
 		<dt>Meshes</dt><dd>${ fmtInt( s.meshes ) }</dd>

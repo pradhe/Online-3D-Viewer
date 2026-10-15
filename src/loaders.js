@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
-import { USDLoader } from 'three/addons/loaders/USDLoader.js';
 import './usdFixes.js';
 import { unzipSync } from 'three/addons/libs/fflate.module.js';
 import { extractUsdMetadata } from './usdMetadata.js';
+import { loadUsdStage, canonical, suffixMatch, BUNDLE_ROOT } from './usdStage.js';
 
 export const USD_EXTENSIONS = [ 'usd', 'usda', 'usdc', 'usdz' ];
 export const MODEL_EXTENSIONS = [ 'obj', ...USD_EXTENSIONS ];
@@ -42,39 +42,85 @@ export function baseName( path ) {
 }
 
 /**
- * Turns a list of File objects into a flat asset map keyed by lower-case file name.
+ * Turns a list of File objects into an asset map keyed by lower-case file name
+ * (for OBJ/MTL lookups). `map.all` lists every file with its relative path,
+ * since USD packages reuse names like "albedo.png" in different folders.
  * ZIP archives are expanded (USDZ files are kept as-is, they are read by the USD loader).
  */
 export async function filesToAssets( files ) {
 
 	const assets = new Map();
+	assets.all = [];
+
+	const add = ( path, blob, size ) => {
+
+		const name = baseName( path );
+		const entry = { name, path: path.replace( /^\/+/, '' ), blob, size };
+		assets.set( name.toLowerCase(), entry );
+		assets.all.push( entry );
+
+	};
 
 	for ( const file of files ) {
 
 		const ext = extensionOf( file.name );
+		const path = file.relativePath || file.webkitRelativePath || file.name;
 
 		if ( ext === 'zip' ) {
 
-			const entries = unzipSync( new Uint8Array( await file.arrayBuffer() ) );
+			// Index the archive, then unpack each file only when it is used:
+			// USD packages can be hundreds of MB and a scene rarely needs every file.
+			const zip = new Uint8Array( await file.arrayBuffer() );
+			const listed = [];
+			unzipSync( zip, { filter: ( f ) => {
 
-			for ( const [ path, bytes ] of Object.entries( entries ) ) {
+				listed.push( f );
+				return false;
 
-				if ( path.endsWith( '/' ) || path.startsWith( '__MACOSX/' ) ) continue;
-				const name = baseName( path );
-				if ( name.startsWith( '.' ) ) continue;
-				assets.set( name.toLowerCase(), { name, blob: new Blob( [ bytes ] ), size: bytes.byteLength } );
+			} } );
+
+			for ( const f of listed ) {
+
+				if ( f.name.endsWith( '/' ) || f.name.startsWith( '__MACOSX/' ) ) continue;
+				if ( baseName( f.name ).startsWith( '.' ) ) continue;
+				let blob = null;
+				const entry = { name: baseName( f.name ), path: f.name, size: f.originalSize };
+				Object.defineProperty( entry, 'blob', {
+					get() {
+
+						blob ||= new Blob( [ unzipSync( zip, { filter: ( x ) => x.name === f.name } )[ f.name ] ] );
+						return blob;
+
+					},
+				} );
+				assets.set( entry.name.toLowerCase(), entry );
+				assets.all.push( entry );
 
 			}
 
 		} else {
 
-			assets.set( file.name.toLowerCase(), { name: file.name, blob: file, size: file.size } );
+			add( path, file, file.size );
 
 		}
 
 	}
 
 	return assets;
+
+}
+
+/**
+ * USD packages hold many .usd files (the scene plus the assets it references).
+ * The scene is normally the one nearest the top of the folder.
+ */
+export function usdRootCandidates( assets ) {
+
+	const usd = assets.all.filter( ( a ) => USD_EXTENSIONS.includes( extensionOf( a.name ) ) );
+	if ( ! usd.length ) return [];
+	const depth = ( a ) => a.path.split( '/' ).length;
+	const min = Math.min( ...usd.map( depth ) );
+	return usd.filter( ( a ) => depth( a ) === min ).sort( ( a, b ) => b.size - a.size );
 
 }
 
@@ -245,10 +291,19 @@ async function buildOBJ( objText, getMtlText, manager, resourcePath ) {
 }
 
 /** Loads a model from local files (picked or dropped). */
-export async function loadFromFiles( fileList ) {
+export async function loadFromFiles( fileList, { chooseRoot, onProgress } = {} ) {
 
 	const assets = await filesToAssets( fileList );
-	const main = findMainAsset( assets );
+	let main = findMainAsset( assets );
+
+	if ( main && USD_EXTENSIONS.includes( extensionOf( main.name ) ) ) {
+
+		const candidates = usdRootCandidates( assets );
+		main = candidates.length > 1 && chooseRoot ? await chooseRoot( candidates ) : candidates[ 0 ] || main;
+		if ( ! main ) throw new Error( 'No file was chosen.' );
+
+	}
+
 
 	if ( ! main ) {
 
@@ -313,10 +368,24 @@ export async function loadFromFiles( fileList ) {
 		} else {
 
 			const buffer = await main.blob.arrayBuffer();
-			const object = await parseUSD( buffer, manager );
+			const byKey = new Map( assets.all.map( ( a ) => [ canonical( BUNDLE_ROOT + a.path ), a ] ) );
+			const keys = [ ...byKey.keys() ];
+			const stage = await loadUsdStage( {
+				rootKey: canonical( BUNDLE_ROOT + main.path ),
+				rootBytes: new Uint8Array( buffer ),
+				manager,
+				onProgress,
+				fetchFile: async ( key ) => {
+
+					const found = byKey.has( key ) ? key : suffixMatch( keys, key );
+					if ( ! found ) return null;
+					return { key: found, bytes: new Uint8Array( await byKey.get( found ).blob.arrayBuffer() ) };
+
+				},
+			} );
 			await manager.idle();
-			stripBrokenTextures( object );
-			result = { object, warnings: [], usd: readMetadata( buffer ) };
+			stripBrokenTextures( stage.group );
+			result = { object: stage.group, warnings: usdWarnings( stage ), usd: readMetadata( buffer ), layers: stage.layerCount };
 
 		}
 
@@ -339,6 +408,7 @@ export async function loadFromFiles( fileList ) {
 		size: main.size,
 		warnings: result.warnings,
 		usd: result.usd || null,
+		layers: result.layers || 0,
 	};
 
 }
@@ -359,21 +429,11 @@ function readMetadata( buffer ) {
 
 }
 
-function parseUSD( buffer, manager ) {
+function usdWarnings( stage ) {
 
-	return new Promise( ( resolve, reject ) => {
-
-		try {
-
-			new USDLoader( manager ).parse( buffer, '', resolve, reject );
-
-		} catch ( e ) {
-
-			reject( e );
-
-		}
-
-	} );
+	if ( ! stage.missing.length ) return [];
+	const list = stage.missing.slice( 0, 6 ).join( ', ' ) + ( stage.missing.length > 6 ? ` and ${ stage.missing.length - 6 } more` : '' );
+	return [ `${ stage.missing.length } linked file${ stage.missing.length === 1 ? ' was' : 's were' } not found: ${ list }. Open the whole folder (or a .zip of it) so referenced files load too.` ];
 
 }
 
@@ -418,23 +478,22 @@ export async function loadFromURL( url ) {
 
 	} else {
 
-		const object = await new Promise( ( resolve, reject ) => {
+		const stage = await loadUsdStage( {
+			rootKey: canonical( absolute ),
+			rootBytes: new Uint8Array( buffer ),
+			manager,
+			fetchFile: async ( key ) => {
 
-			try {
+				if ( ! /^https?:/i.test( key ) ) return null;
+				const res = await fetch( key ).catch( () => null );
+				if ( ! res || ! res.ok ) return null;
+				return { key, bytes: new Uint8Array( await res.arrayBuffer() ) };
 
-				new USDLoader( manager ).parse( buffer, resourcePath, resolve, reject );
-
-			} catch ( e ) {
-
-				reject( e );
-
-			}
-
+			},
 		} );
-
 		await manager.idle();
-		stripBrokenTextures( object );
-		result = { object, warnings: [], usd: readMetadata( buffer ) };
+		stripBrokenTextures( stage.group );
+		result = { object: stage.group, warnings: usdWarnings( stage ), usd: readMetadata( buffer ), layers: stage.layerCount };
 
 	}
 
@@ -451,6 +510,7 @@ export async function loadFromURL( url ) {
 		size: buffer.byteLength,
 		warnings: result.warnings,
 		usd: result.usd || null,
+		layers: result.layers || 0,
 	};
 
 }

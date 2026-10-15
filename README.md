@@ -10,7 +10,9 @@ Files are opened locally in the browser and are never uploaded anywhere.
 | Format | Extensions | Notes |
 |---|---|---|
 | Wavefront OBJ | `.obj` (+ `.mtl`, textures) | Select or drop the `.obj` together with its `.mtl` and texture images, a folder, or a `.zip` containing them. A renamed `.mtl` is still picked up. |
-| Universal Scene Description | `.usd`, `.usda`, `.usdc`, `.usdz` | ASCII and binary (crate) USD, and USDZ packages with embedded textures. Z-up stages and `metersPerUnit` are respected. Skeletal animation clips can be played. |
+| Universal Scene Description | `.usd`, `.usda`, `.usdc`, `.usdz` | ASCII and binary (crate) USD, and USDZ packages. Multi-file scenes (e.g. NVIDIA Omniverse assets) load fully when you open the folder or a .zip: references, payloads and sublayers (relative, `../` and `omniverse://` paths), point instancers, OmniPBR / OmniSurface / OmniGlass (MDL) materials and their textures. Z-up stages and `metersPerUnit` are respected. Skeletal and transform animation can be played. |
+
+For scenes made of many files, use **Open folder** (or drop the folder / a .zip). If the folder has several top-level USD files, the viewer asks which scene to open. Big .zip packages are unpacked file by file as the scene needs them.
 
 You can also open a model from a URL (the server must allow CORS), or link straight to one:
 `index.html?model=https://example.com/model.usdz`. The bundled samples open with `?sample=city` or `?sample=shapes`.
@@ -81,14 +83,17 @@ Online-3D-Viewer/
     ├── loaders.js      # OBJ/MTL and USD loading from files, zips, folders and URLs
     ├── usdMetadata.js  # USD stage/prim metadata, attributes and relationships
     ├── editor.js       # appearance/transform/property editing and the USD edits layer
-    ├── usdFixes.js     # fixes for three.js' binary USD reader
+    ├── usdFixes.js     # fixes/additions for three.js' USD parsers, composer and MDL materials
+    ├── usdStage.js     # multi-file USD stages: references, payloads, sublayers, instancers
     ├── exporters.js    # GLB / OBJ / USDZ export
     └── style.css
 ```
 
 ## Limitations
 
-- USD loading uses three.js' `USDLoader`, with fixes for binary USD (`src/usdFixes.js`): double/half vectors stored inline (e.g. a `translate` of `(0, 45, 0)`) and `string[]` values. Metadata is read separately in `src/usdMetadata.js`. It covers meshes, primitives (cube, sphere, cylinder, cone, capsule), `UsdPreviewSurface` materials, transforms, lights, cameras and skeletal animation. External references and sublayers in a separate file are not resolved when you open a single local file; package them as `.usdz` instead.
+- USD loading uses three.js' USD parsers and composer, extended in `src/usdFixes.js` (binary references/payloads/sublayers/dictionaries, inline double vectors, all reference forms in text files, MDL materials) and `src/usdStage.js` (multi-file loading, sublayer merging, reference caching, point instancers).
+- Composition is simplified compared with Pixar's USD: sublayer opinions are merged prim by prim, `over` prims in text layers, inherits/specializes, variant authoring in sublayers and layer time offsets are not applied. MDL materials are approximated with standard PBR materials; DDS/EXR textures are not shown.
+- USD metadata in the Selection panel comes from the root layer; parts brought in by references show their geometry and materials but not their USD properties. It covers meshes, primitives (cube, sphere, cylinder, cone, capsule), `UsdPreviewSurface` materials, transforms, lights, cameras and skeletal animation. External references and sublayers in a separate file are not resolved when you open a single local file; package them as `.usdz` instead.
 - OBJ export contains geometry only. Use GLB or USDZ to keep materials.
 - Very large models (millions of triangles) depend on the device's GPU and memory.
 

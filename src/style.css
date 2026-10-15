@@ -561,3 +561,9 @@ body:not(.has-model) .view-toolbar { display: none; }
 .add-prop { grid-template-columns: minmax(0, 1fr); }
 .add-prop-row input { min-width: 0; width: 0; }
 .add-prop-row select { flex: none; max-width: 40%; }
+
+.root-list { display: grid; gap: 4px; margin-top: 12px; max-height: 50vh; overflow: auto; }
+.root-option { display: flex; justify-content: space-between; gap: 12px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); text-align: left; cursor: pointer; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.root-option:hover, .root-option:focus-visible { border-color: var(--accent); outline: none; }
+.root-option span { overflow-wrap: anywhere; }
+.root-option small { color: var(--muted); white-space: nowrap; }

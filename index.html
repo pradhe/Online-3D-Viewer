@@ -46,6 +46,8 @@
 				<svg><use href="#i-open"/></svg><span>Open</span>
 			</button>
 			<input type="file" id="file-input" multiple hidden />
+			<button class="icon-btn" id="btn-open-folder" title="Open a folder (USD scenes with linked files, OBJ with textures)" aria-label="Open folder"><svg><use href="#i-group"/></svg></button>
+			<input type="file" id="folder-input" webkitdirectory multiple hidden />
 
 			<details class="menu" id="menu-samples">
 				<summary class="btn" title="Sample models"><svg><use href="#i-cube"/></svg><span>Samples</span></summary>
@@ -94,9 +96,10 @@
 			<div class="empty-state" id="empty-state">
 				<svg class="empty-icon"><use href="#i-cube"/></svg>
 				<h1>Drop a 3D model here</h1>
-				<p>OBJ (with .mtl and textures) or USD — <code>.usd</code> <code>.usda</code> <code>.usdc</code> <code>.usdz</code>. ZIP files and folders work too.</p>
+				<p>OBJ (with .mtl and textures) or USD — <code>.usd</code> <code>.usda</code> <code>.usdc</code> <code>.usdz</code>. For scenes made of many files (such as NVIDIA Omniverse assets), open the whole folder or a .zip of it.</p>
 				<div class="empty-actions">
 					<button class="btn primary" data-action="open"><svg><use href="#i-open"/></svg><span>Choose files</span></button>
+					<button class="btn" data-action="open-folder"><svg><use href="#i-group"/></svg><span>Open folder</span></button>
 					<button class="btn" data-sample="city">Try the city (OBJ)</button>
 					<button class="btn" data-sample="shapes">Try shapes (USD)</button>
 				</div>
@@ -228,6 +231,17 @@
 			<div class="dialog-actions">
 				<button class="btn" value="cancel" formnovalidate>Cancel</button>
 				<button class="btn primary" value="ok">Open</button>
+			</div>
+		</form>
+	</dialog>
+
+	<dialog id="root-dialog">
+		<form method="dialog">
+			<h2>Which file should open?</h2>
+			<p class="muted small">This folder has several USD files at the top level. Pick the scene to open; files it references load automatically.</p>
+			<div class="root-list" id="root-list"></div>
+			<div class="dialog-actions">
+				<button class="btn" value="cancel">Cancel</button>
 			</div>
 		</form>
 	</dialog>
