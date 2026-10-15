@@ -427,3 +427,42 @@ body:not(.has-model) .view-toolbar { display: none; }
 	#btn-fullscreen { display: none; }
 	.topbar { gap: 6px; padding: 0 8px; }
 }
+
+/* ---------------------------------------------------------------- USD properties */
+
+.usd-block { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 10px; }
+.usd-path { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.usd-path code {
+	flex: 1;
+	min-width: 0;
+	overflow-wrap: anywhere;
+	background: var(--bg);
+	border: 1px solid var(--line);
+	border-radius: 5px;
+	padding: 4px 7px;
+	color: #ffd99b;
+}
+/* Keys like customData.approved or assetInfo.identifier are long: stack key over value. */
+.usd-props { grid-template-columns: minmax(0, 1fr); gap: 0; }
+.usd-props dt { font-size: 12px; overflow-wrap: anywhere; }
+.usd-props dd { text-align: left; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; margin-bottom: 7px; overflow-wrap: anywhere; }
+.usd-props dd:last-child { margin-bottom: 0; }
+.usd-group { border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
+.usd-group > summary { cursor: pointer; padding: 6px 9px; font-size: 12px; color: var(--muted); list-style: none; display: flex; gap: 6px; align-items: center; }
+.usd-group > summary::-webkit-details-marker { display: none; }
+.usd-group > summary::before { content: ""; width: 5px; height: 5px; border: solid currentColor; border-width: 0 1.5px 1.5px 0; transform: rotate(-45deg); transition: transform .12s; }
+.usd-group[open] > summary::before { transform: rotate(45deg); }
+.usd-filter { width: calc(100% - 16px); margin: 0 8px 6px; height: 26px; padding: 0 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 5px; outline: none; font-size: 12px; }
+.usd-filter:focus { border-color: var(--accent); }
+.usd-attrs { list-style: none; margin: 0; padding: 0 8px 8px; display: grid; gap: 6px; max-height: 340px; overflow: auto; scrollbar-width: thin; }
+.usd-attrs li { display: grid; gap: 2px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.usd-attrs li:last-child { border-bottom: 0; padding-bottom: 0; }
+.usd-attr-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; }
+.usd-attr-name { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; overflow-wrap: anywhere; }
+.usd-attr-type { font-family: ui-monospace, monospace; font-size: 11px; color: var(--muted); }
+.usd-attr-value { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: #c8d3e0; overflow-wrap: anywhere; }
+.usd-badge { font-size: 10px; padding: 0 5px; border-radius: 3px; background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); }
+.usd-badge.custom { color: #ffd99b; border-color: rgba(255, 178, 56, .4); }
+.usd-badge.animated { color: var(--ok); border-color: rgba(95, 211, 154, .4); }
+.usd-link { border: 0; background: none; padding: 0; color: var(--accent); font: inherit; cursor: pointer; text-align: left; overflow-wrap: anywhere; text-decoration: underline dotted; }
+.usd-link:hover { text-decoration: underline; }

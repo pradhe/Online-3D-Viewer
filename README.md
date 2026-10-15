@@ -21,6 +21,7 @@ You can also open a model from a URL (the server must allow CORS), or link strai
 - **Selection** – click (or tap) to select, Shift/Ctrl+click for multi-select, double-click to focus. Selected objects are outlined and shown in the scene tree.
 - **Scene tree** – browse the model's hierarchy, search by name, and show or hide objects.
 - **Properties** – vertex and triangle counts, size, position and materials of the selection. Hide, isolate and show all.
+- **USD metadata** – for USD files, the selected prim's path, type, kind, doc, `customData`, `assetInfo`, API schemas, every attribute (custom ones first, with type, `uniform` and `animated` badges) and relationships such as `material:binding`. The **USD stage** section shows layer metadata: `defaultPrim`, `upAxis`, `metersPerUnit`, time codes, `doc` and `customLayerData`. Works for `.usda`, `.usdc` and `.usdz`.
 - **Transform gizmo** – move, rotate or scale the selected part, and reset it.
 - **Measure** – click two points on the surface to measure the distance between them.
 - **Display options** – render modes (shaded, clay, wireframe, X-ray, normals), background color, grid, axes, bounding box, shadows, double-sided materials, light/environment/exposure sliders, and Y-up/Z-up correction. Settings are remembered in the browser.
@@ -72,13 +73,15 @@ Online-3D-Viewer/
     ├── main.js         # UI wiring: panels, tree, menus, shortcuts, drag & drop
     ├── viewer.js       # three.js scene, camera, controls, selection, measure, display modes
     ├── loaders.js      # OBJ/MTL and USD loading from files, zips, folders and URLs
+    ├── usdMetadata.js  # USD stage/prim metadata, attributes and relationships
+    ├── usdFixes.js     # fixes for three.js' binary USD reader
     ├── exporters.js    # GLB / OBJ / USDZ export
     └── style.css
 ```
 
 ## Limitations
 
-- USD loading uses three.js' `USDLoader`. It covers meshes, primitives (cube, sphere, cylinder, cone, capsule), `UsdPreviewSurface` materials, transforms, lights, cameras and skeletal animation. External references and sublayers in a separate file are not resolved when you open a single local file; package them as `.usdz` instead.
+- USD loading uses three.js' `USDLoader`, with fixes for binary USD (`src/usdFixes.js`): double/half vectors stored inline (e.g. a `translate` of `(0, 45, 0)`) and `string[]` values. Metadata is read separately in `src/usdMetadata.js`. It covers meshes, primitives (cube, sphere, cylinder, cone, capsule), `UsdPreviewSurface` materials, transforms, lights, cameras and skeletal animation. External references and sublayers in a separate file are not resolved when you open a single local file; package them as `.usdz` instead.
 - OBJ export contains geometry only. Use GLB or USDZ to keep materials.
 - Very large models (millions of triangles) depend on the device's GPU and memory.
 

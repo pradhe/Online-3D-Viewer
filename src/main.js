@@ -1,6 +1,7 @@
 import { Viewer, VIEWS, RENDER_MODES, formatLength } from './viewer.js';
 import { loadFromFiles, loadFromURL, baseName } from './loaders.js';
 import { exportModel, EXPORT_FORMATS } from './exporters.js';
+import { attachUsdPaths } from './usdMetadata.js';
 
 const $ = ( sel ) => document.querySelector( sel );
 const $$ = ( sel ) => [ ...document.querySelectorAll( sel ) ];
@@ -28,7 +29,7 @@ const DEFAULTS = {
 const viewer = new Viewer( $( '#viewport' ) );
 window.viewer = viewer; // handy for debugging from the console
 
-const state = { file: null };
+const state = { file: null, usdObjects: new Map() };
 
 // ======================================================================= utils
 
@@ -202,6 +203,32 @@ async function runLoad( label, loader ) {
 		viewer.upAxis = 'y';
 		$( '#opt-up' ).value = 'y';
 		state.file = { ...result, loadMs: performance.now() - t0 };
+		state.usdObjects = new Map();
+		if ( result.usd ) {
+
+			attachUsdPaths( result.object, result.usd );
+			result.object.traverse( ( o ) => {
+
+				if ( ! o.userData.usdPath ) return;
+				state.usdObjects.set( o.userData.usdPath, o );
+
+				// The loader leaves materials unnamed; use the bound USD material's name.
+				const binding = result.usd.prims.get( o.userData.usdPath )?.relationships.find( ( r ) => r.name === 'material:binding' );
+				const target = binding?.targets[ 0 ];
+				if ( o.isMesh && target ) {
+
+					for ( const m of Array.isArray( o.material ) ? o.material : [ o.material ] ) {
+
+						if ( ! m.name ) m.name = target.split( '/' ).pop();
+
+					}
+
+				}
+
+			} );
+
+		}
+
 		viewer.setModel( result.object );
 		document.body.classList.add( 'has-model' );
 		$( '#empty-state' ).hidden = true;
@@ -669,14 +696,148 @@ function fmtVec( v ) {
 
 }
 
-function materialRow( m ) {
+function materialRow( { material: m, count } ) {
 
 	const color = m.color ? `#${ m.color.getHexString() }` : 'transparent';
 	const tags = [];
 	if ( m.map ) tags.push( 'texture' );
 	if ( m.transparent && m.opacity < 1 ) tags.push( `α ${ m.opacity.toFixed( 2 ) }` );
 	const type = m.type.replace( /^Mesh|Material$/g, '' );
-	return `<li><span class="chip" style="background:${ color }"></span><span>${ escapeHtml( m.name || '(unnamed)' ) }</span><small>${ escapeHtml( [ type, ...tags ].join( ' · ' ) ) }</small></li>`;
+	return `<li><span class="chip" style="background:${ color }"></span><span>${ escapeHtml( m.name || '(unnamed)' ) }${ count > 1 ? ` <span class="muted">×${ count }</span>` : '' }</span><small>${ escapeHtml( [ type, ...tags ].join( ' · ' ) ) }</small></li>`;
+
+}
+
+// ======================================================================= USD properties
+
+function usdPrimOf( obj ) {
+
+	const meta = state.file?.usd;
+	const path = obj?.userData?.usdPath;
+	return meta && path ? meta.prims.get( path ) : null;
+
+}
+
+function usdLink( path ) {
+
+	// Point at the prim even when the target is one of its properties (…/PBR.outputs:surface).
+	const primPath = path.split( '.' )[ 0 ];
+	const target = state.usdObjects.get( primPath );
+	return target
+		? `<button class="usd-link" data-usd-select="${ escapeHtml( primPath ) }" title="Select ${ escapeHtml( primPath ) }">${ escapeHtml( path ) }</button>`
+		: `<code>${ escapeHtml( path ) }</code>`;
+
+}
+
+function usdSection( obj ) {
+
+	const prim = usdPrimOf( obj );
+	if ( ! prim ) return '';
+
+	const metaRows = prim.metadata.map( ( [ k, v ] ) => `<dt>${ escapeHtml( k ) }</dt><dd>${ escapeHtml( v ) }</dd>` ).join( '' );
+
+	const attrs = [ ...prim.attributes ].sort( ( a, b ) => ( b.custom - a.custom ) || a.name.localeCompare( b.name ) );
+	const attrRows = attrs.map( ( a ) => {
+
+		const badges = [ a.custom ? 'custom' : '', a.uniform ? 'uniform' : '', a.animated ? 'animated' : '' ].filter( Boolean )
+			.map( ( b ) => `<span class="usd-badge ${ b }">${ b }</span>` ).join( '' );
+		let value;
+		if ( a.connection ) value = `→ ${ usdLink( a.connection ) }`;
+		else if ( a.animated ) value = `${ a.samples ? `${ a.samples } keyframes` : 'Time-sampled' }${ a.value !== undefined ? ` · default ${ escapeHtml( a.value ) }` : '' }`;
+		else value = a.value === undefined ? '<span class="muted">no value</span>' : escapeHtml( a.value );
+		return `<li data-usd-filter="${ escapeHtml( ( a.name + ' ' + a.type ).toLowerCase() ) }">
+			<div class="usd-attr-head"><span class="usd-attr-name">${ escapeHtml( a.name ) }</span><span class="usd-attr-type">${ escapeHtml( a.type ) }</span>${ badges }</div>
+			<div class="usd-attr-value">${ value }</div>
+		</li>`;
+
+	} ).join( '' );
+
+	const relRows = prim.relationships.map( ( r ) => `<li>
+			<div class="usd-attr-head"><span class="usd-attr-name">${ escapeHtml( r.name ) }</span><span class="usd-attr-type">rel</span></div>
+			<div class="usd-attr-value">${ r.targets.length ? r.targets.map( usdLink ).join( '<br/>' ) : '<span class="muted">no targets</span>' }</div>
+		</li>` ).join( '' );
+
+	return `
+		<div class="usd-block">
+			<div class="sub-label">USD prim</div>
+			<div class="usd-path"><code title="${ escapeHtml( prim.path ) }">${ escapeHtml( prim.path ) }</code><button class="btn small" data-usd-copy="${ escapeHtml( prim.path ) }">Copy</button></div>
+			<dl class="props usd-props">
+				<dt>Type</dt><dd>${ escapeHtml( prim.type || '(typeless)' ) }</dd>
+				${ prim.specifier !== 'def' ? `<dt>Specifier</dt><dd>${ escapeHtml( prim.specifier ) }</dd>` : '' }
+				${ metaRows }
+			</dl>
+			${ attrs.length ? `
+			<details class="usd-group" open>
+				<summary>Attributes <span class="muted">${ attrs.length }</span></summary>
+				${ attrs.length > 8 ? '<input type="search" class="usd-filter" id="usd-attr-filter" placeholder="Filter attributes…" autocomplete="off" />' : '' }
+				<ul class="usd-attrs">${ attrRows }</ul>
+			</details>` : '' }
+			${ prim.relationships.length ? `
+			<details class="usd-group" open>
+				<summary>Relationships <span class="muted">${ prim.relationships.length }</span></summary>
+				<ul class="usd-attrs">${ relRows }</ul>
+			</details>` : '' }
+		</div>`;
+
+}
+
+function wireUsdSection( root ) {
+
+	root.querySelectorAll( '[data-usd-select]' ).forEach( ( b ) => b.addEventListener( 'click', () => {
+
+		const target = state.usdObjects.get( b.dataset.usdSelect );
+		if ( target ) viewer.select( [ target ] );
+
+	} ) );
+
+	root.querySelectorAll( '[data-usd-copy]' ).forEach( ( b ) => b.addEventListener( 'click', async () => {
+
+		try {
+
+			await navigator.clipboard.writeText( b.dataset.usdCopy );
+			b.textContent = 'Copied';
+
+		} catch {
+
+			const code = b.previousElementSibling;
+			const range = document.createRange();
+			range.selectNodeContents( code );
+			getSelection().removeAllRanges();
+			getSelection().addRange( range );
+			b.textContent = 'Selected';
+
+		}
+
+		setTimeout( () => {
+
+			b.textContent = 'Copy';
+
+		}, 1500 );
+
+	} ) );
+
+	const filter = root.querySelector( '.usd-filter' );
+	if ( filter ) filter.addEventListener( 'input', () => {
+
+		const q = filter.value.trim().toLowerCase();
+		filter.parentElement.querySelectorAll( '[data-usd-filter]' ).forEach( ( li ) => {
+
+			li.hidden = q && ! li.dataset.usdFilter.includes( q );
+
+		} );
+
+	} );
+
+}
+
+function renderUsdStage() {
+
+	const meta = state.file?.usd;
+	$( '#section-usd-stage' ).hidden = ! meta;
+	if ( ! meta ) return;
+	$( '#usd-stage' ).innerHTML = [
+		...meta.stage.map( ( [ k, v ] ) => `<dt>${ escapeHtml( k ) }</dt><dd>${ escapeHtml( v ) }</dd>` ),
+		`<dt>prims</dt><dd>${ fmtInt( meta.prims.size ) }</dd>`,
+	].join( '' );
 
 }
 
@@ -707,7 +868,17 @@ function renderSelection() {
 	const size = viewer.getSize( sel );
 	const single = sel.length === 1 ? sel[ 0 ] : null;
 	const anyVisible = sel.some( ( o ) => o.visible );
-	const mats = [ ...materials ];
+	// Loaders often create one material per part; list identical ones once.
+	const groups = new Map();
+	for ( const m of materials ) {
+
+		const key = [ m.name, m.type, m.color?.getHexString(), m.map?.uuid, m.opacity ].join( '|' );
+		if ( groups.has( key ) ) groups.get( key ).count ++;
+		else groups.set( key, { material: m, count: 1 } );
+
+	}
+
+	const mats = [ ...groups.values() ];
 
 	selectionBody.innerHTML = `
 		<div>
@@ -721,7 +892,8 @@ function renderSelection() {
 			<dt>Size</dt><dd>${ fmtVec( size ) }</dd>
 			${ single ? `<dt>Position</dt><dd id="sel-position">${ fmtVec( single.position ) }</dd>` : '' }
 		</dl>
-		${ mats.length ? `<div class="sub-label">Materials (${ mats.length })</div><ul class="materials">${ mats.slice( 0, 8 ).map( materialRow ).join( '' ) }${ mats.length > 8 ? `<li class="muted">+ ${ mats.length - 8 } more</li>` : '' }</ul>` : '' }
+		${ mats.length ? `<div class="sub-label">Materials (${ materials.size })</div><ul class="materials">${ mats.slice( 0, 8 ).map( materialRow ).join( '' ) }${ mats.length > 8 ? `<li class="muted">+ ${ mats.length - 8 } more</li>` : '' }</ul>` : '' }
+		${ single ? usdSection( single ) : '' }
 		<div class="button-row">
 			<button class="btn small" data-act="focus">Focus</button>
 			<button class="btn small" data-act="hide">${ anyVisible ? 'Hide' : 'Show' }</button>
@@ -739,6 +911,8 @@ function renderSelection() {
 			</div>
 			<button class="btn small" data-act="reset">Reset</button>
 		</div>` : '' }`;
+
+	wireUsdSection( selectionBody );
 
 	selectionBody.querySelectorAll( '[data-act]' ).forEach( ( b ) => b.addEventListener( 'click', () => {
 
@@ -894,6 +1068,7 @@ viewer.addEventListener( 'modelchange', () => {
 	renderSelection();
 	renderModelInfo();
 	renderAnimation();
+	renderUsdStage();
 
 } );
 

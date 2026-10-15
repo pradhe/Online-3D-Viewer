@@ -2,7 +2,9 @@ import * as THREE from 'three';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
 import { USDLoader } from 'three/addons/loaders/USDLoader.js';
+import './usdFixes.js';
 import { unzipSync } from 'three/addons/libs/fflate.module.js';
+import { extractUsdMetadata } from './usdMetadata.js';
 
 export const USD_EXTENSIONS = [ 'usd', 'usda', 'usdc', 'usdz' ];
 export const MODEL_EXTENSIONS = [ 'obj', ...USD_EXTENSIONS ];
@@ -314,7 +316,7 @@ export async function loadFromFiles( fileList ) {
 			const object = await parseUSD( buffer, manager );
 			await manager.idle();
 			stripBrokenTextures( object );
-			result = { object, warnings: [] };
+			result = { object, warnings: [], usd: readMetadata( buffer ) };
 
 		}
 
@@ -336,7 +338,24 @@ export async function loadFromFiles( fileList ) {
 		format: ext,
 		size: main.size,
 		warnings: result.warnings,
+		usd: result.usd || null,
 	};
+
+}
+
+/** Metadata is a bonus: a file that renders must never fail because of it. */
+function readMetadata( buffer ) {
+
+	try {
+
+		return extractUsdMetadata( buffer );
+
+	} catch ( e ) {
+
+		console.warn( 'Could not read USD metadata:', e );
+		return null;
+
+	}
 
 }
 
@@ -415,7 +434,7 @@ export async function loadFromURL( url ) {
 
 		await manager.idle();
 		stripBrokenTextures( object );
-		result = { object, warnings: [] };
+		result = { object, warnings: [], usd: readMetadata( buffer ) };
 
 	}
 
@@ -431,6 +450,7 @@ export async function loadFromURL( url ) {
 		format: ext,
 		size: buffer.byteLength,
 		warnings: result.warnings,
+		usd: result.usd || null,
 	};
 
 }
