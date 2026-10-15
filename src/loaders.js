@@ -13,8 +13,12 @@ export function extensionOf( name ) {
 
 	const clean = name.split( /[?#]/ )[ 0 ];
 	const base = baseName( clean );
-	const dot = base.lastIndexOf( '.' );
-	return dot < 0 ? '' : base.slice( dot + 1 ).toLowerCase();
+	const parts = base.toLowerCase().split( '.' );
+	if ( parts.length < 2 ) return '';
+	const ext = parts.pop();
+	// Browsers sometimes save text models as "scene.usda.txt" or "model.obj.txt".
+	if ( ext === 'txt' && parts.length > 1 && [ 'obj', 'mtl', 'usd', 'usda' ].includes( parts[ parts.length - 1 ] ) ) return parts.pop();
+	return ext;
 
 }
 

@@ -1,5 +1,5 @@
 import { Viewer, VIEWS, RENDER_MODES, formatLength } from './viewer.js';
-import { loadFromFiles, loadFromURL, ACCEPT, baseName } from './loaders.js';
+import { loadFromFiles, loadFromURL, baseName } from './loaders.js';
 import { exportModel, EXPORT_FORMATS } from './exporters.js';
 
 const $ = ( sel ) => document.querySelector( sel );
@@ -257,7 +257,8 @@ async function openSample( key ) {
 // ---- file picker
 
 const fileInput = $( '#file-input' );
-fileInput.accept = ACCEPT;
+// No `accept` filter: several browsers (iOS, Android, some desktops) don't know .usd/.usda/.usdc
+// and grey those files out. Unsupported files get a clear error after picking instead.
 fileInput.addEventListener( 'change', () => {
 
 	openFiles( [ ...fileInput.files ] );
