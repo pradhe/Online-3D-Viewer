@@ -12,6 +12,8 @@ Files are opened locally in the browser and are never uploaded anywhere.
 | Wavefront OBJ | `.obj` (+ `.mtl`, textures) | Select or drop the `.obj` together with its `.mtl` and texture images, a folder, or a `.zip` containing them. A renamed `.mtl` is still picked up. |
 | Universal Scene Description | `.usd`, `.usda`, `.usdc`, `.usdz` | ASCII and binary (crate) USD, and USDZ packages. Multi-file scenes (e.g. NVIDIA Omniverse assets) load fully when you open the folder or a .zip: references, payloads and sublayers (relative, `../` and `omniverse://` paths), point instancers, OmniPBR / OmniSurface / OmniGlass (MDL) materials and their textures. Z-up stages and `metersPerUnit` are respected. Skeletal and transform animation can be played. |
 
+Links that are not in the folder are downloaded when possible: web addresses, and `omniverse://…/NVIDIA/…` paths from NVIDIA's public asset library. Anything still missing is listed in **Model info**.
+
 For scenes made of many files, use **Open folder** (or drop the folder / a .zip). If the folder has several top-level USD files, the viewer asks which scene to open. Big .zip packages are unpacked file by file as the scene needs them.
 
 You can also open a model from a URL (the server must allow CORS), or link straight to one:

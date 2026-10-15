@@ -378,14 +378,15 @@ export async function loadFromFiles( fileList, { chooseRoot, onProgress } = {} )
 				fetchFile: async ( key ) => {
 
 					const found = byKey.has( key ) ? key : suffixMatch( keys, key );
-					if ( ! found ) return null;
-					return { key: found, bytes: new Uint8Array( await byKey.get( found ).blob.arrayBuffer() ) };
+					if ( found ) return { key: found, bytes: new Uint8Array( await byKey.get( found ).blob.arrayBuffer() ) };
+					// Not in the folder: NVIDIA scenes often link to NVIDIA's public asset library.
+					return fetchRemote( key, onProgress );
 
 				},
 			} );
 			await manager.idle();
 			stripBrokenTextures( stage.group );
-			result = { object: stage.group, warnings: usdWarnings( stage ), usd: readMetadata( buffer ), layers: stage.layerCount };
+			result = { object: stage.group, warnings: usdWarnings( stage ), usd: readMetadata( buffer ), layers: stage.layerCount, missing: stage.missing };
 
 		}
 
@@ -409,6 +410,7 @@ export async function loadFromFiles( fileList, { chooseRoot, onProgress } = {} )
 		warnings: result.warnings,
 		usd: result.usd || null,
 		layers: result.layers || 0,
+		missing: result.missing || [],
 	};
 
 }
@@ -429,11 +431,31 @@ function readMetadata( buffer ) {
 
 }
 
+// NVIDIA's public Omniverse content (omniverse://<server>/NVIDIA/Assets/...) is mirrored here, with CORS enabled.
+const NVIDIA_CONTENT = 'https://omniverse-content-production.s3-us-west-2.amazonaws.com/';
+let remoteCount = 0;
+
+/** Downloads a linked file that is not in the local bundle: web links and NVIDIA library paths. */
+async function fetchRemote( key, onProgress ) {
+
+	let url = null;
+	if ( /^https?:\/\//i.test( key ) ) url = key;
+	const nvidia = key.match( /^omniverse:\/\/[^/]+\/NVIDIA\/(.+)$/i );
+	if ( nvidia ) url = NVIDIA_CONTENT + nvidia[ 1 ].split( '/' ).map( encodeURIComponent ).join( '/' );
+	if ( ! url ) return null;
+
+	onProgress?.( `Downloading linked assets… ${ ++ remoteCount }` );
+	const res = await fetch( url ).catch( () => null );
+	if ( ! res || ! res.ok ) return null;
+	return { key, bytes: new Uint8Array( await res.arrayBuffer() ) };
+
+}
+
 function usdWarnings( stage ) {
 
 	if ( ! stage.missing.length ) return [];
 	const list = stage.missing.slice( 0, 6 ).join( ', ' ) + ( stage.missing.length > 6 ? ` and ${ stage.missing.length - 6 } more` : '' );
-	return [ `${ stage.missing.length } linked file${ stage.missing.length === 1 ? ' was' : 's were' } not found: ${ list }. Open the whole folder (or a .zip of it) so referenced files load too.` ];
+	return [ `${ stage.missing.length } linked file${ stage.missing.length === 1 ? ' was' : 's were' } not found: ${ list }. The full list is in Model info. Open the whole folder (or a .zip of it) so referenced files load too.` ];
 
 }
 
@@ -482,18 +504,11 @@ export async function loadFromURL( url ) {
 			rootKey: canonical( absolute ),
 			rootBytes: new Uint8Array( buffer ),
 			manager,
-			fetchFile: async ( key ) => {
-
-				if ( ! /^https?:/i.test( key ) ) return null;
-				const res = await fetch( key ).catch( () => null );
-				if ( ! res || ! res.ok ) return null;
-				return { key, bytes: new Uint8Array( await res.arrayBuffer() ) };
-
-			},
+			fetchFile: ( key ) => fetchRemote( key ),
 		} );
 		await manager.idle();
 		stripBrokenTextures( stage.group );
-		result = { object: stage.group, warnings: usdWarnings( stage ), usd: readMetadata( buffer ), layers: stage.layerCount };
+		result = { object: stage.group, warnings: usdWarnings( stage ), usd: readMetadata( buffer ), layers: stage.layerCount, missing: stage.missing };
 
 	}
 
@@ -511,6 +526,7 @@ export async function loadFromURL( url ) {
 		warnings: result.warnings,
 		usd: result.usd || null,
 		layers: result.layers || 0,
+		missing: result.missing || [],
 	};
 
 }

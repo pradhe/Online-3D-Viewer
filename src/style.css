@@ -567,3 +567,7 @@ body:not(.has-model) .view-toolbar { display: none; }
 .root-option:hover, .root-option:focus-visible { border-color: var(--accent); outline: none; }
 .root-option span { overflow-wrap: anywhere; }
 .root-option small { color: var(--muted); white-space: nowrap; }
+
+.props .missing-head, .props .missing-count { color: var(--danger); }
+.props .missing-list { grid-column: 1 / -1; text-align: left; }
+.missing-list textarea { width: 100%; resize: vertical; background: var(--bg); border: 1px solid var(--line); border-radius: 5px; padding: 6px; font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); white-space: pre; }

@@ -17,6 +17,8 @@ import { USDComposer } from 'three/addons/loaders/usd/USDComposer.js';
 // ============================================================================ crate types
 
 const T = {
+	Bool: 1,
+	UChar: 2,
 	String: 10,
 	Vec2d: 19,
 	Vec3d: 23,
@@ -116,13 +118,24 @@ proto._readInlinedValue = function ( valueRep ) {
 
 proto._readArrayValue = function ( valueRep ) {
 
-	if ( valueRep.typeEnum !== T.String || valueRep.isCompressed ) return readArrayValue.call( this, valueRep );
+	const type = valueRep.typeEnum;
+	if ( ( type !== T.String && type !== T.UChar && type !== T.Bool ) || valueRep.isCompressed ) return readArrayValue.call( this, valueRep );
 
 	const reader = this.reader;
 	const size = this.version.major === 0 && this.version.minor < 7 ? reader.readUint32() : reader.readUint64();
-	const out = [];
-	for ( let i = 0; i < size; i ++ ) out.push( this._crateString( reader.readUint32() ) );
-	return out;
+
+	if ( type === T.String ) {
+
+		const out = [];
+		for ( let i = 0; i < size; i ++ ) out.push( this._crateString( reader.readUint32() ) );
+		return out;
+
+	}
+
+	// uchar[] / bool[]: one byte each.
+	const out = new Uint8Array( size );
+	for ( let i = 0; i < size; i ++ ) out[ i ] = reader.readUint8();
+	return type === T.Bool ? Array.from( out, Boolean ) : out;
 
 };
 

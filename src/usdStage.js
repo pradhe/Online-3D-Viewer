@@ -289,7 +289,7 @@ export async function loadUsdStage( { rootKey, rootBytes, fetchFile, manager, on
 
 			if ( ! found ) {
 
-				missing.add( cleanAsset( assetPath ) );
+				missing.add( key.replace( BUNDLE_ROOT, '' ) );
 				return;
 
 			}

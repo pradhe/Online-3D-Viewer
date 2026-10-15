@@ -980,7 +980,9 @@ function renderModelInfo() {
 		<dt>Textures</dt><dd>${ fmtInt( s.textures.size ) }</dd>
 		<dt>Dimensions</dt><dd>${ formatLength( size.x ) } × ${ formatLength( size.y ) } × ${ formatLength( size.z ) }</dd>
 		${ viewer.model.animations?.length ? `<dt>Animations</dt><dd>${ viewer.model.animations.length }</dd>` : '' }
-		<dt>Load time</dt><dd>${ ( f.loadMs / 1000 ).toFixed( 2 ) } s</dd>`;
+		<dt>Load time</dt><dd>${ ( f.loadMs / 1000 ).toFixed( 2 ) } s</dd>
+		${ f.missing?.length ? `<dt class="missing-head">Missing files</dt><dd class="missing-count">${ f.missing.length }</dd>
+		<dd class="missing-list"><textarea readonly rows="${ Math.min( 8, f.missing.length ) }" aria-label="Missing files">${ escapeHtml( f.missing.join( '\n' ) ) }</textarea></dd>` : '' }`;
 
 }
 
