@@ -406,6 +406,8 @@ export class Viewer extends EventTarget {
 
 		this.model = object;
 		this.pivot.add( object );
+		// Loaders set position/scale without updating .matrix; compute it before recording originals.
+		object.updateMatrixWorld( true );
 
 		object.traverse( ( child ) => {
 
@@ -689,6 +691,20 @@ export class Viewer extends EventTarget {
 			mesh.material = mode === 'shaded' ? this.originalMaterials.get( mesh ) : this.modeMaterials[ mode ];
 
 		}
+
+	}
+
+	/** Swaps a mesh's own material (e.g. to edit one part without touching others that shared it). */
+	replaceMaterial( mesh, material ) {
+
+		this.originalMaterials.set( mesh, material );
+		for ( const m of Array.isArray( material ) ? material : [ material ] ) {
+
+			if ( ! this.originalSides.has( m ) ) this.originalSides.set( m, m.side );
+
+		}
+
+		if ( this.renderMode === 'shaded' ) mesh.material = material;
 
 	}
 

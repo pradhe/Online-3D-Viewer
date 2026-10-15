@@ -309,7 +309,7 @@ body.dragging .drop-overlay { display: grid; }
 .section > summary::-webkit-details-marker { display: none; }
 .section > summary::before { content: ""; width: 5px; height: 5px; border: solid currentColor; border-width: 0 1.5px 1.5px 0; transform: rotate(-45deg); transition: transform .12s; }
 .section[open] > summary::before { transform: rotate(45deg); }
-.section-body { padding: 0 14px 14px; display: grid; gap: 10px; }
+.section-body { padding: 0 14px 14px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
 
 .field { display: grid; gap: 5px; }
 .field > span:first-child { color: var(--muted); font-size: 12px; display: flex; justify-content: space-between; }
@@ -466,3 +466,98 @@ body:not(.has-model) .view-toolbar { display: none; }
 .usd-badge.animated { color: var(--ok); border-color: rgba(95, 211, 154, .4); }
 .usd-link { border: 0; background: none; padding: 0; color: var(--accent); font: inherit; cursor: pointer; text-align: left; overflow-wrap: anywhere; text-decoration: underline dotted; }
 .usd-link:hover { text-decoration: underline; }
+
+/* ---------------------------------------------------------------- editing */
+
+.edit-count {
+	min-width: 18px;
+	height: 18px;
+	padding: 0 5px;
+	border-radius: 9px;
+	background: var(--accent);
+	color: var(--accent-ink);
+	font-size: 11px;
+	font-weight: 700;
+	display: inline-grid;
+	place-items: center;
+	font-variant-numeric: tabular-nums;
+}
+.menu-list .menu-sep-before { border-top: 1px solid var(--line); border-radius: 0 0 6px 6px; margin-top: 4px; padding-top: 10px; }
+
+.edit-group { border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
+.edit-group > summary { cursor: pointer; padding: 7px 9px; font-size: 12px; color: var(--muted); list-style: none; display: flex; gap: 6px; align-items: center; }
+.edit-group > summary::-webkit-details-marker { display: none; }
+.edit-group > summary::before { content: ""; width: 5px; height: 5px; border: solid currentColor; border-width: 0 1.5px 1.5px 0; transform: rotate(-45deg); transition: transform .12s; }
+.edit-group[open] > summary::before { transform: rotate(45deg); }
+.edit-body { display: grid; gap: 10px; padding: 2px 9px 10px; }
+.edit-mat-name { display: flex; align-items: center; gap: 8px; }
+.edit-mat-name .chip, .materials .chip { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(255, 255, 255, .2); flex: none; }
+.edit-scope { width: 100%; }
+.edit-scope button { flex: 1; }
+.edit-colors { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.color-field { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 8px; align-items: center; cursor: pointer; }
+.color-field input[type="color"] { grid-row: span 2; width: 36px; height: 32px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; cursor: pointer; }
+.color-field span { font-size: 12px; color: var(--muted); }
+.color-field code { font-size: 11px; }
+
+.vec-head, .vec-row { display: grid; grid-template-columns: 70px repeat(3, minmax(0, 1fr)); gap: 4px; align-items: center; }
+.vec-head span { font-size: 11px; color: var(--muted); text-align: center; }
+.vec-row span { font-size: 12px; color: var(--muted); }
+.vec-row input {
+	min-width: 0;
+	height: 26px;
+	padding: 0 5px;
+	background: var(--panel);
+	border: 1px solid var(--line);
+	border-radius: 5px;
+	font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+	outline: none;
+	font-variant-numeric: tabular-nums;
+}
+.vec-row input:focus { border-color: var(--accent); }
+
+.inline-edit {
+	width: 100%;
+	min-width: 0;
+	padding: 3px 6px;
+	margin: 0 -6px;
+	width: calc(100% + 12px);
+	background: transparent;
+	border: 1px solid transparent;
+	border-radius: 4px;
+	font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+	color: inherit;
+	outline: none;
+}
+.inline-edit:hover { border-color: var(--line); background: var(--panel); }
+.inline-edit:focus { border-color: var(--accent); background: var(--panel); }
+.inline-edit.invalid { border-color: var(--danger); }
+.inline-bool { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.inline-bool input { accent-color: var(--accent); margin: 0; }
+
+.revert { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0 3px; font-size: 13px; line-height: 1; border-radius: 3px; }
+.revert:hover { color: var(--text); background: var(--panel-2); }
+.usd-badge.edited { color: var(--accent); border-color: rgba(255, 178, 56, .5); }
+.usd-badge.new { color: #8fc8ff; border-color: rgba(143, 200, 255, .5); }
+
+.add-prop { display: grid; gap: 6px; padding: 8px; margin: 0 8px 8px; border: 1px dashed var(--line); border-radius: 6px; }
+.add-prop-title { font-size: 12px; color: var(--muted); }
+.add-prop input, .add-prop select {
+	min-width: 0;
+	height: 28px;
+	padding: 0 7px;
+	background: var(--panel);
+	border: 1px solid var(--line);
+	border-radius: 5px;
+	font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+	outline: none;
+}
+.add-prop input:focus, .add-prop select:focus { border-color: var(--accent); }
+.add-prop-row { display: flex; gap: 6px; }
+.add-prop-row input { flex: 1; }
+.edit-hint { margin: 0 8px 8px; }
+.edit-body, .usd-block { grid-template-columns: minmax(0, 1fr); }
+.edit-scope button { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.add-prop { grid-template-columns: minmax(0, 1fr); }
+.add-prop-row input { min-width: 0; width: 0; }
+.add-prop-row select { flex: none; max-width: 40%; }

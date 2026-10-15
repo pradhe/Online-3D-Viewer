@@ -23,6 +23,12 @@ You can also open a model from a URL (the server must allow CORS), or link strai
 - **Properties** – vertex and triangle counts, size, position and materials of the selection. Hide, isolate and show all.
 - **USD metadata** – for USD files, the selected prim's path, type, kind, doc, `customData`, `assetInfo`, API schemas, every attribute (custom ones first, with type, `uniform` and `animated` badges) and relationships such as `material:binding`. The **USD stage** section shows layer metadata: `defaultPrim`, `upAxis`, `metersPerUnit`, time codes, `doc` and `customLayerData`. Works for `.usda`, `.usdc` and `.usdz`.
 - **Transform gizmo** – move, rotate or scale the selected part, and reset it.
+- **Editing** – in the Selection panel:
+  - **Appearance**: colour, glow, opacity, roughness, metalness (or shininess) for *all parts* using a material or only the *selected* parts, with reset.
+  - **Transform**: type exact position, rotation (degrees) and scale.
+  - **USD properties**: edit attribute values (validated by type), `doc`, `kind`, `customData` and `assetInfo`; add new custom properties (`userProperties:…`) and custom data; undo any change. Non-USD models get free-form custom properties (kept in GLB exports).
+  - The **Export** button shows how many unsaved changes there are, and the page warns before you leave with unsaved changes.
+- **Saving edits** – *Export → USD edits layer (.usda)* writes only your changes as USD overrides that sublayer the original file (keep both files together). It opens in any USD tool (usdview, Omniverse, Blender, Houdini…). Colour and transform changes are also included in GLB and USDZ exports.
 - **Measure** – click two points on the surface to measure the distance between them.
 - **Display options** – render modes (shaded, clay, wireframe, X-ray, normals), background color, grid, axes, bounding box, shadows, double-sided materials, light/environment/exposure sliders, and Y-up/Z-up correction. Settings are remembered in the browser.
 - **Model info** – file size, objects, meshes, vertices, triangles, materials, textures, dimensions and load time.
@@ -74,6 +80,7 @@ Online-3D-Viewer/
     ├── viewer.js       # three.js scene, camera, controls, selection, measure, display modes
     ├── loaders.js      # OBJ/MTL and USD loading from files, zips, folders and URLs
     ├── usdMetadata.js  # USD stage/prim metadata, attributes and relationships
+    ├── editor.js       # appearance/transform/property editing and the USD edits layer
     ├── usdFixes.js     # fixes for three.js' binary USD reader
     ├── exporters.js    # GLB / OBJ / USDZ export
     └── style.css

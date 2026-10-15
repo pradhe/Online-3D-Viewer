@@ -2,6 +2,7 @@ import { Viewer, VIEWS, RENDER_MODES, formatLength } from './viewer.js';
 import { loadFromFiles, loadFromURL, baseName } from './loaders.js';
 import { exportModel, EXPORT_FORMATS } from './exporters.js';
 import { attachUsdPaths } from './usdMetadata.js';
+import { Editor } from './editor.js';
 
 const $ = ( sel ) => document.querySelector( sel );
 const $$ = ( sel ) => [ ...document.querySelectorAll( sel ) ];
@@ -30,6 +31,18 @@ const viewer = new Viewer( $( '#viewport' ) );
 window.viewer = viewer; // handy for debugging from the console
 
 const state = { file: null, usdObjects: new Map() };
+
+const editor = new Editor( {
+	viewer,
+	state,
+	toast: ( ...a ) => toast( ...a ),
+	onChange: () => {
+
+		renderSelection();
+		updateEditCount();
+
+	},
+} );
 
 // ======================================================================= utils
 
@@ -229,7 +242,9 @@ async function runLoad( label, loader ) {
 
 		}
 
+		editor.reset();
 		viewer.setModel( result.object );
+		updateEditCount();
 		document.body.classList.add( 'has-model' );
 		$( '#empty-state' ).hidden = true;
 		document.title = `${ result.name } · MyCity 3D Viewer`;
@@ -428,9 +443,50 @@ for ( const [ key, fmt ] of Object.entries( EXPORT_FORMATS ) ) {
 
 }
 
+{
+
+	const b = document.createElement( 'button' );
+	b.className = 'menu-sep-before';
+	b.innerHTML = 'USD edits layer <small>.usda</small>';
+	b.title = 'Your changes as a small USD file that layers over the original';
+	b.addEventListener( 'click', () => {
+
+		closeMenus();
+		runExport( 'usdedits' );
+
+	} );
+	exportList.appendChild( b );
+
+}
+
+function exportUsdEdits() {
+
+	if ( ! state.file?.usd ) {
+
+		toast( 'The USD edits layer is for USD files. For other models, export GLB or USDZ to keep your changes.', 'info', 7000 );
+		return;
+
+	}
+
+	const layer = editor.buildUsdEditLayer();
+
+	if ( ! layer ) {
+
+		toast( 'There are no changes to save yet. Edit a colour, transform or property first.', 'info', 6000 );
+		return;
+
+	}
+
+	download( new Blob( [ layer.text ], { type: 'text/plain' } ), `${ modelStem() }_edits.usda` );
+	toast( `Saved ${ modelStem() }_edits.usda. Keep it in the same folder as ${ state.file.name } and open the edits file in any USD app.`, 'success', 9000 );
+	if ( layer.skipped.length ) toast( `Transform changes on animated objects were not saved: ${ layer.skipped.join( ', ' ) }`, 'info', 9000 );
+
+}
+
 async function runExport( format ) {
 
 	if ( ! viewer.model ) return;
+	if ( format === 'usdedits' ) return exportUsdEdits();
 	showLoading( `Exporting ${ format.toUpperCase() }…` );
 	await nextFrame();
 
@@ -707,127 +763,7 @@ function materialRow( { material: m, count } ) {
 
 }
 
-// ======================================================================= USD properties
-
-function usdPrimOf( obj ) {
-
-	const meta = state.file?.usd;
-	const path = obj?.userData?.usdPath;
-	return meta && path ? meta.prims.get( path ) : null;
-
-}
-
-function usdLink( path ) {
-
-	// Point at the prim even when the target is one of its properties (…/PBR.outputs:surface).
-	const primPath = path.split( '.' )[ 0 ];
-	const target = state.usdObjects.get( primPath );
-	return target
-		? `<button class="usd-link" data-usd-select="${ escapeHtml( primPath ) }" title="Select ${ escapeHtml( primPath ) }">${ escapeHtml( path ) }</button>`
-		: `<code>${ escapeHtml( path ) }</code>`;
-
-}
-
-function usdSection( obj ) {
-
-	const prim = usdPrimOf( obj );
-	if ( ! prim ) return '';
-
-	const metaRows = prim.metadata.map( ( [ k, v ] ) => `<dt>${ escapeHtml( k ) }</dt><dd>${ escapeHtml( v ) }</dd>` ).join( '' );
-
-	const attrs = [ ...prim.attributes ].sort( ( a, b ) => ( b.custom - a.custom ) || a.name.localeCompare( b.name ) );
-	const attrRows = attrs.map( ( a ) => {
-
-		const badges = [ a.custom ? 'custom' : '', a.uniform ? 'uniform' : '', a.animated ? 'animated' : '' ].filter( Boolean )
-			.map( ( b ) => `<span class="usd-badge ${ b }">${ b }</span>` ).join( '' );
-		let value;
-		if ( a.connection ) value = `→ ${ usdLink( a.connection ) }`;
-		else if ( a.animated ) value = `${ a.samples ? `${ a.samples } keyframes` : 'Time-sampled' }${ a.value !== undefined ? ` · default ${ escapeHtml( a.value ) }` : '' }`;
-		else value = a.value === undefined ? '<span class="muted">no value</span>' : escapeHtml( a.value );
-		return `<li data-usd-filter="${ escapeHtml( ( a.name + ' ' + a.type ).toLowerCase() ) }">
-			<div class="usd-attr-head"><span class="usd-attr-name">${ escapeHtml( a.name ) }</span><span class="usd-attr-type">${ escapeHtml( a.type ) }</span>${ badges }</div>
-			<div class="usd-attr-value">${ value }</div>
-		</li>`;
-
-	} ).join( '' );
-
-	const relRows = prim.relationships.map( ( r ) => `<li>
-			<div class="usd-attr-head"><span class="usd-attr-name">${ escapeHtml( r.name ) }</span><span class="usd-attr-type">rel</span></div>
-			<div class="usd-attr-value">${ r.targets.length ? r.targets.map( usdLink ).join( '<br/>' ) : '<span class="muted">no targets</span>' }</div>
-		</li>` ).join( '' );
-
-	return `
-		<div class="usd-block">
-			<div class="sub-label">USD prim</div>
-			<div class="usd-path"><code title="${ escapeHtml( prim.path ) }">${ escapeHtml( prim.path ) }</code><button class="btn small" data-usd-copy="${ escapeHtml( prim.path ) }">Copy</button></div>
-			<dl class="props usd-props">
-				<dt>Type</dt><dd>${ escapeHtml( prim.type || '(typeless)' ) }</dd>
-				${ prim.specifier !== 'def' ? `<dt>Specifier</dt><dd>${ escapeHtml( prim.specifier ) }</dd>` : '' }
-				${ metaRows }
-			</dl>
-			${ attrs.length ? `
-			<details class="usd-group" open>
-				<summary>Attributes <span class="muted">${ attrs.length }</span></summary>
-				${ attrs.length > 8 ? '<input type="search" class="usd-filter" id="usd-attr-filter" placeholder="Filter attributes…" autocomplete="off" />' : '' }
-				<ul class="usd-attrs">${ attrRows }</ul>
-			</details>` : '' }
-			${ prim.relationships.length ? `
-			<details class="usd-group" open>
-				<summary>Relationships <span class="muted">${ prim.relationships.length }</span></summary>
-				<ul class="usd-attrs">${ relRows }</ul>
-			</details>` : '' }
-		</div>`;
-
-}
-
-function wireUsdSection( root ) {
-
-	root.querySelectorAll( '[data-usd-select]' ).forEach( ( b ) => b.addEventListener( 'click', () => {
-
-		const target = state.usdObjects.get( b.dataset.usdSelect );
-		if ( target ) viewer.select( [ target ] );
-
-	} ) );
-
-	root.querySelectorAll( '[data-usd-copy]' ).forEach( ( b ) => b.addEventListener( 'click', async () => {
-
-		try {
-
-			await navigator.clipboard.writeText( b.dataset.usdCopy );
-			b.textContent = 'Copied';
-
-		} catch {
-
-			const code = b.previousElementSibling;
-			const range = document.createRange();
-			range.selectNodeContents( code );
-			getSelection().removeAllRanges();
-			getSelection().addRange( range );
-			b.textContent = 'Selected';
-
-		}
-
-		setTimeout( () => {
-
-			b.textContent = 'Copy';
-
-		}, 1500 );
-
-	} ) );
-
-	const filter = root.querySelector( '.usd-filter' );
-	if ( filter ) filter.addEventListener( 'input', () => {
-
-		const q = filter.value.trim().toLowerCase();
-		filter.parentElement.querySelectorAll( '[data-usd-filter]' ).forEach( ( li ) => {
-
-			li.hidden = q && ! li.dataset.usdFilter.includes( q );
-
-		} );
-
-	} );
-
-}
+// ======================================================================= USD stage
 
 function renderUsdStage() {
 
@@ -890,29 +826,35 @@ function renderSelection() {
 			<dt>Triangles</dt><dd>${ fmtInt( triangles ) }</dd>
 			${ single && single.children.length ? `<dt>Children</dt><dd>${ fmtInt( single.children.length ) }</dd>` : '' }
 			<dt>Size</dt><dd>${ fmtVec( size ) }</dd>
-			${ single ? `<dt>Position</dt><dd id="sel-position">${ fmtVec( single.position ) }</dd>` : '' }
 		</dl>
-		${ mats.length ? `<div class="sub-label">Materials (${ materials.size })</div><ul class="materials">${ mats.slice( 0, 8 ).map( materialRow ).join( '' ) }${ mats.length > 8 ? `<li class="muted">+ ${ mats.length - 8 } more</li>` : '' }</ul>` : '' }
-		${ single ? usdSection( single ) : '' }
 		<div class="button-row">
 			<button class="btn small" data-act="focus">Focus</button>
 			<button class="btn small" data-act="hide">${ anyVisible ? 'Hide' : 'Show' }</button>
 			<button class="btn small" data-act="isolate">Isolate</button>
 			<button class="btn small" data-act="deselect">Deselect</button>
 		</div>
+		${ mats.length ? `<div class="sub-label">Materials (${ materials.size })</div><ul class="materials">${ mats.slice( 0, 8 ).map( materialRow ).join( '' ) }${ mats.length > 8 ? `<li class="muted">+ ${ mats.length - 8 } more</li>` : '' }</ul>` : '' }
+		${ editor.appearanceSection( sel ) }
+		${ single ? editor.transformSection( single ) : '' }
 		${ single ? `
-		<div class="sub-label">Transform gizmo</div>
-		<div class="button-row">
+		<div class="button-row gizmo-row">
 			<div class="seg" id="gizmo-seg">
 				<button data-gizmo="" title="Off (Q)">Off</button>
 				<button data-gizmo="translate" title="Move (W)">Move</button>
 				<button data-gizmo="rotate" title="Rotate (E)">Rotate</button>
 				<button data-gizmo="scale" title="Scale (R)">Scale</button>
 			</div>
-			<button class="btn small" data-act="reset">Reset</button>
-		</div>` : '' }`;
+			<button class="btn small" data-act="reset" title="Undo transform changes">Reset</button>
+		</div>` : '' }
+		${ single ? editor.usdSection( single ) : '' }`;
 
-	wireUsdSection( selectionBody );
+	editor.wireAppearance( selectionBody, sel );
+	if ( single ) {
+
+		editor.wireTransform( selectionBody, single );
+		editor.wireProperties( selectionBody, single );
+
+	}
 
 	selectionBody.querySelectorAll( '[data-act]' ).forEach( ( b ) => b.addEventListener( 'click', () => {
 
@@ -921,7 +863,13 @@ function renderSelection() {
 		if ( act === 'hide' ) viewer.setVisible( sel, ! anyVisible );
 		if ( act === 'isolate' ) viewer.isolate();
 		if ( act === 'deselect' ) viewer.clearSelection();
-		if ( act === 'reset' ) viewer.resetTransform();
+		if ( act === 'reset' ) {
+
+			viewer.resetTransform();
+			renderSelection();
+			updateEditCount();
+
+		}
 
 	} ) );
 
@@ -1102,10 +1050,33 @@ viewer.addEventListener( 'transformchange', () => {
 
 		transformQueued = false;
 		const [ obj ] = viewer.selection;
-		const pos = $( '#sel-position' );
-		if ( obj && pos ) pos.textContent = fmtVec( obj.position );
+		editor.syncTransformInputs( selectionBody, obj );
+		updateEditCount();
 
 	} );
+
+} );
+
+// ======================================================================= edits
+
+function updateEditCount() {
+
+	const n = viewer.model ? editor.editCount() : 0;
+	const badge = $( '#edit-count' );
+	badge.hidden = ! n;
+	badge.textContent = n;
+	badge.title = `${ n } unsaved change${ n === 1 ? '' : 's' }`;
+
+}
+
+window.addEventListener( 'beforeunload', ( e ) => {
+
+	if ( viewer.model && editor.editCount() ) {
+
+		e.preventDefault();
+		e.returnValue = '';
+
+	}
 
 } );
 
