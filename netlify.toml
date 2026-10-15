@@ -1,0 +1,7 @@
+# Netlify: connect the (private) GitHub repo and deploy; no other settings needed.
+[build]
+  command = "npm ci && npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
