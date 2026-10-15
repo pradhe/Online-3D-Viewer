@@ -500,6 +500,8 @@ export class Viewer extends EventTarget {
 		const R = this.sceneRadius;
 
 		this._buildGrid( Math.max( size.x, size.z ) * 1.6 );
+		// Sit just below the model's base so a flat floor does not flicker with the grid.
+		this.grid.position.y = - R * 1e-3;
 		this.axes.scale.setScalar( Math.max( size.x, size.y, size.z ) * 0.6 );
 		this.boxHelper.box.copy( box );
 
