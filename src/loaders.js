@@ -253,6 +253,50 @@ function centerMeshPivots( object ) {
 
 }
 
+/**
+ * MTL files describe old Phong materials, which ignore image-based lighting.
+ * Convert them to physically based materials so OBJ models are lit like USD ones.
+ */
+function usePhysicalMaterials( object ) {
+
+	const converted = new Map();
+	const convert = ( m ) => {
+
+		if ( ! m.isMeshPhongMaterial && ! m.isMeshLambertMaterial ) return m;
+		if ( converted.has( m ) ) return converted.get( m );
+		const shininess = m.shininess ?? 30;
+		const std = new THREE.MeshStandardMaterial( {
+			name: m.name,
+			color: m.color.clone(),
+			map: m.map,
+			normalMap: m.normalMap,
+			bumpMap: m.bumpMap,
+			bumpScale: m.bumpScale,
+			alphaMap: m.alphaMap,
+			emissive: m.emissive ? m.emissive.clone() : new THREE.Color( 0 ),
+			emissiveMap: m.emissiveMap,
+			opacity: m.opacity,
+			transparent: m.transparent,
+			side: m.side,
+			vertexColors: m.vertexColors,
+			flatShading: m.flatShading,
+			// Blinn-Phong exponent → GGX roughness.
+			roughness: THREE.MathUtils.clamp( Math.sqrt( 2 / ( shininess + 2 ) ), 0.05, 1 ),
+			metalness: 0,
+		} );
+		converted.set( m, std );
+		return std;
+
+	};
+
+	object.traverse( ( o ) => {
+
+		if ( o.isMesh ) o.material = Array.isArray( o.material ) ? o.material.map( convert ) : convert( o.material );
+
+	} );
+
+}
+
 function parseMtllibNames( objText ) {
 
 	const names = [];
@@ -283,6 +327,7 @@ async function buildOBJ( objText, getMtlText, manager, resourcePath ) {
 
 	const object = loader.parse( objText );
 	centerMeshPivots( object );
+	usePhysicalMaterials( object );
 	await manager.idle();
 	stripBrokenTextures( object );
 

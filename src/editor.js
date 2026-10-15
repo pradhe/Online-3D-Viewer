@@ -149,11 +149,10 @@ function sameMaterialValues( a, b ) {
 
 }
 
-function srgbTriple( color ) {
+/** USD colours are linear, as are three.js colours internally. */
+function linearTriple( color ) {
 
-	const c = {};
-	color.getRGB( c, THREE.SRGBColorSpace );
-	return `(${ fmtNum( c.r ) }, ${ fmtNum( c.g ) }, ${ fmtNum( c.b ) })`;
+	return `(${ fmtNum( color.r ) }, ${ fmtNum( color.g ) }, ${ fmtNum( color.b ) })`;
 
 }
 
@@ -1163,8 +1162,8 @@ export class Editor {
 
 		const out = [];
 		const differs = ( key ) => ! snap || ( snap[ key ]?.isColor ? ! snap[ key ].equals( m[ key ] ) : snap[ key ] !== m[ key ] );
-		if ( m.color && differs( 'color' ) ) out.push( `color3f inputs:diffuseColor = ${ srgbTriple( m.color ) }` );
-		if ( m.emissive && differs( 'emissive' ) ) out.push( `color3f inputs:emissiveColor = ${ srgbTriple( m.emissive ) }` );
+		if ( m.color && differs( 'color' ) ) out.push( `color3f inputs:diffuseColor = ${ linearTriple( m.color ) }` );
+		if ( m.emissive && differs( 'emissive' ) ) out.push( `color3f inputs:emissiveColor = ${ linearTriple( m.emissive ) }` );
 		if ( m.roughness !== undefined && differs( 'roughness' ) ) out.push( `float inputs:roughness = ${ fmtNum( m.roughness ) }` );
 		if ( m.metalness !== undefined && differs( 'metalness' ) ) out.push( `float inputs:metallic = ${ fmtNum( m.metalness ) }` );
 		if ( differs( 'opacity' ) ) out.push( `float inputs:opacity = ${ fmtNum( m.opacity ) }` );

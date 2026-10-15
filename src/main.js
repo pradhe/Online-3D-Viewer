@@ -1,4 +1,6 @@
 import { Viewer, VIEWS, RENDER_MODES, formatLength } from './viewer.js';
+import { ENVIRONMENTS } from './environments.js';
+import { TONE_MAPPINGS } from './toneMapping.js';
 import { loadFromFiles, loadFromURL, baseName } from './loaders.js';
 import { exportModel, EXPORT_FORMATS } from './exporters.js';
 import { attachUsdPaths } from './usdMetadata.js';
@@ -12,14 +14,18 @@ const SAMPLES = {
 	shapes: { url: 'samples/shapes/shapes.usda', label: 'Shapes' },
 };
 
-const SETTINGS_KEY = 'mycity-viewer:settings';
+const SETTINGS_KEY = 'mycity-viewer:settings:v2';
 const DEFAULTS = {
 	renderMode: 'shaded',
 	background: '#1d2127',
 	grid: true,
 	axes: false,
 	bounds: false,
-	shadows: false,
+	shadows: true,
+	ao: true,
+	environment: 'studio',
+	toneMapping: 'neutral',
+	envRotation: 0,
 	doubleSided: false,
 	light: 1,
 	env: 1,
@@ -155,7 +161,13 @@ function applySettings() {
 	const s = settings;
 	if ( ! RENDER_MODES[ s.renderMode ] ) s.renderMode = 'shaded';
 
+	if ( ! ENVIRONMENTS[ s.environment ] ) s.environment = 'studio';
+	if ( ! TONE_MAPPINGS[ s.toneMapping ] ) s.toneMapping = 'neutral';
 	$( '#opt-render-mode' ).value = s.renderMode;
+	$( '#opt-environment' ).value = s.environment;
+	$( '#opt-tonemapping' ).value = s.toneMapping;
+	$( '#opt-ao' ).checked = s.ao;
+	$( '#opt-envrot' ).value = s.envRotation;
 	$( '#opt-background' ).value = s.background;
 	$( '#opt-grid' ).checked = s.grid;
 	$( '#opt-axes' ).checked = s.axes;
@@ -167,6 +179,10 @@ function applySettings() {
 	$( '#opt-exposure' ).value = s.exposure;
 	$( '#opt-fov' ).value = s.fov;
 
+	viewer.setToneMapping( s.toneMapping );
+	viewer.setEnvironment( s.environment );
+	viewer.setEnvironmentRotation( s.envRotation );
+	viewer.setAmbientOcclusion( s.ao );
 	viewer.setRenderMode( s.renderMode );
 	viewer.setBackground( s.background );
 	$( '#viewport' ).style.background = s.background;
@@ -189,6 +205,7 @@ function updateOutputs() {
 	$( '#out-env' ).textContent = Number( settings.env ).toFixed( 2 );
 	$( '#out-exposure' ).textContent = Number( settings.exposure ).toFixed( 2 );
 	$( '#out-fov' ).textContent = `${ settings.fov }°`;
+	$( '#out-envrot' ).textContent = `${ settings.envRotation }°`;
 
 }
 
@@ -1008,14 +1025,19 @@ renderModeSelect.addEventListener( 'change', () => setSetting( 'renderMode', ren
 $( '#opt-background' ).addEventListener( 'input', ( e ) => setSetting( 'background', e.target.value ) );
 $$( '[data-bg]' ).forEach( ( b ) => b.addEventListener( 'click', () => setSetting( 'background', b.dataset.bg ) ) );
 
-const checkMap = { 'opt-grid': 'grid', 'opt-axes': 'axes', 'opt-bounds': 'bounds', 'opt-shadows': 'shadows', 'opt-double': 'doubleSided' };
+const checkMap = { 'opt-grid': 'grid', 'opt-axes': 'axes', 'opt-bounds': 'bounds', 'opt-shadows': 'shadows', 'opt-double': 'doubleSided', 'opt-ao': 'ao' };
+
+$( '#opt-environment' ).innerHTML = Object.entries( ENVIRONMENTS ).map( ( [ k, v ] ) => `<option value="${ k }">${ v }</option>` ).join( '' );
+$( '#opt-tonemapping' ).innerHTML = Object.entries( TONE_MAPPINGS ).map( ( [ k, v ] ) => `<option value="${ k }">${ escapeHtml( v.label ) }</option>` ).join( '' );
+$( '#opt-environment' ).addEventListener( 'change', ( e ) => setSetting( 'environment', e.target.value ) );
+$( '#opt-tonemapping' ).addEventListener( 'change', ( e ) => setSetting( 'toneMapping', e.target.value ) );
 for ( const [ id, key ] of Object.entries( checkMap ) ) {
 
 	$( `#${ id }` ).addEventListener( 'change', ( e ) => setSetting( key, e.target.checked ) );
 
 }
 
-const rangeMap = { 'opt-light': 'light', 'opt-env': 'env', 'opt-exposure': 'exposure', 'opt-fov': 'fov' };
+const rangeMap = { 'opt-light': 'light', 'opt-env': 'env', 'opt-exposure': 'exposure', 'opt-fov': 'fov', 'opt-envrot': 'envRotation' };
 for ( const [ id, key ] of Object.entries( rangeMap ) ) {
 
 	$( `#${ id }` ).addEventListener( 'input', ( e ) => setSetting( key, Number( e.target.value ) ) );
@@ -1196,6 +1218,19 @@ window.addEventListener( 'keydown', ( e ) => {
 	e.preventDefault();
 
 } );
+
+// Any user input may change what is drawn (settings, edits, gizmo drags): ask for fresh frames.
+for ( const type of [ 'pointerdown', 'pointerup', 'wheel', 'keydown', 'input', 'change', 'click' ] ) {
+
+	window.addEventListener( type, () => viewer.invalidate(), { capture: true, passive: true } );
+
+}
+
+window.addEventListener( 'pointermove', ( e ) => {
+
+	if ( e.buttons ) viewer.invalidate();
+
+}, { capture: true, passive: true } );
 
 // ======================================================================= start
 

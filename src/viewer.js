@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
+import { EnvironmentLibrary } from './environments.js';
+import { TONE_MAPPINGS, inverseToneMap } from './toneMapping.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
@@ -111,6 +113,10 @@ export class Viewer extends EventTarget {
 		renderer.toneMappingExposure = 1;
 		renderer.shadowMap.enabled = true;
 		renderer.shadowMap.type = THREE.PCFShadowMap;
+		renderer.shadowMap.autoUpdate = false;
+		this._dirtyUntil = Infinity;
+		this._lastRender = 0;
+		this.toneMappingMode = 'neutral';
 		renderer.domElement.classList.add( 'viewport-canvas' );
 		this.container.appendChild( renderer.domElement );
 		this.renderer = renderer;
@@ -128,10 +134,10 @@ export class Viewer extends EventTarget {
 		scene.background = new THREE.Color( '#1d2127' );
 		this.scene = scene;
 
-		const pmrem = new THREE.PMREMGenerator( this.renderer );
-		scene.environment = pmrem.fromScene( new RoomEnvironment(), 0.04 ).texture;
+		this.environments = new EnvironmentLibrary( this.renderer );
+		this.environmentName = 'studio';
+		scene.environment = this.environments.get( 'studio' );
 		scene.environmentIntensity = 1;
-		pmrem.dispose();
 
 		this.perspectiveCamera = new THREE.PerspectiveCamera( 45, 1, 0.01, 1000 );
 		this.perspectiveCamera.position.set( 6, 4, 8 );
@@ -139,14 +145,15 @@ export class Viewer extends EventTarget {
 		this.orthoHeight = 10;
 		this.camera = this.perspectiveCamera;
 
-		// Lights. Phong materials (OBJ/MTL) ignore the environment map, so real lights are needed too.
-		this.ambient = new THREE.AmbientLight( 0xffffff, 0.25 );
-		this.hemi = new THREE.HemisphereLight( 0xdfe8ff, 0x3a3530, 0.9 );
-		this.keyLight = new THREE.DirectionalLight( 0xffffff, 1.6 );
-		this.keyLight.shadow.mapSize.set( 2048, 2048 );
-		this.keyLight.shadow.bias = - 0.0005;
-		this.fillLight = new THREE.DirectionalLight( 0xcfdcff, 0.45 );
-		this.lights = [ this.ambient, this.hemi, this.keyLight, this.fillLight ];
+		// Image-based lighting does most of the work; a key light adds direction and
+		// shadows, a faint sky/ground light lifts the darkest areas.
+		this.hemi = new THREE.HemisphereLight( 0xe8eeff, 0x40382f, 0.25 );
+		this.keyLight = new THREE.DirectionalLight( 0xfff6ea, 1.4 );
+		this.keyLight.shadow.mapSize.set( 4096, 4096 );
+		this.keyLight.shadow.bias = - 0.0002;
+		this.keyLight.shadow.radius = 3;
+		this.fillLight = new THREE.DirectionalLight( 0xdce6ff, 0.25 );
+		this.lights = [ this.hemi, this.keyLight, this.fillLight ];
 		this.lights.forEach( ( l ) => {
 
 			l.userData.baseIntensity = l.intensity;
@@ -173,7 +180,7 @@ export class Viewer extends EventTarget {
 
 		this.shadowGround = new THREE.Mesh(
 			new THREE.PlaneGeometry( 1, 1 ).rotateX( - Math.PI / 2 ),
-			new THREE.ShadowMaterial( { opacity: 0.3 } )
+			new THREE.ShadowMaterial( { opacity: 0.35 } )
 		);
 		this.shadowGround.receiveShadow = true;
 		this.shadowGround.visible = false;
@@ -224,12 +231,18 @@ export class Viewer extends EventTarget {
 		const target = new THREE.WebGLRenderTarget( 1, 1, { type: THREE.HalfFloatType, samples: 4 } );
 		const composer = new EffectComposer( this.renderer, target );
 		this.renderPass = new RenderPass( this.scene, this.camera );
+		// Ambient occlusion: soft contact shadows in corners, creases and under objects.
+		this.aoPass = new GTAOPass( this.scene, this.camera, 1, 1 );
+		this.aoPass.output = GTAOPass.OUTPUT.Default;
+		this.aoPass.blendIntensity = 1;
+		this.aoPass.updatePdMaterial( { lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 16 } );
 		this.outlinePass = new OutlinePass( new THREE.Vector2( 1, 1 ), this.scene, this.camera );
 		this.outlinePass.visibleEdgeColor.set( '#ffb238' );
 		this.outlinePass.hiddenEdgeColor.set( '#8a5a10' );
 		this.outlinePass.edgeStrength = 4;
 		this.outlinePass.edgeThickness = 1;
 		composer.addPass( this.renderPass );
+		composer.addPass( this.aoPass );
 		composer.addPass( this.outlinePass );
 		composer.addPass( new OutputPass() );
 		this.composer = composer;
@@ -304,6 +317,7 @@ export class Viewer extends EventTarget {
 
 	_emit( type, detail = {} ) {
 
+		this.invalidate();
 		this.dispatchEvent( new CustomEvent( type, { detail } ) );
 
 	}
@@ -331,7 +345,9 @@ export class Viewer extends EventTarget {
 		this.composer.setPixelRatio( this.renderer.getPixelRatio() );
 		this.composer.setSize( w, h );
 		this.outlinePass.setSize( w * this.renderer.getPixelRatio(), h * this.renderer.getPixelRatio() );
+		this.aoPass.setSize( w * this.renderer.getPixelRatio(), h * this.renderer.getPixelRatio() );
 		this._updateProjection();
+		this.invalidate?.();
 
 	}
 
@@ -435,6 +451,17 @@ export class Viewer extends EventTarget {
 
 		}
 
+		const anisotropy = this.renderer.capabilities.getMaxAnisotropy();
+		for ( const mats of this.originalMaterials.values() ) {
+
+			for ( const m of Array.isArray( mats ) ? mats : [ mats ] ) {
+
+				for ( const key of TEXTURE_KEYS ) if ( m[ key ]?.isTexture ) m[ key ].anisotropy = anisotropy;
+
+			}
+
+		}
+
 		this.setRenderMode( this.renderMode );
 		this.setDoubleSided( this.doubleSided );
 		this.setShadows( this.shadows );
@@ -510,11 +537,8 @@ export class Viewer extends EventTarget {
 		this.shadowGround.scale.set( R * 6, 1, R * 6 );
 		this.shadowGround.position.set( 0, box.min.y - R * 1e-4, 0 );
 
-		const c = sphere.center;
-		this.keyLight.position.set( c.x + R * 1.6, c.y + R * 2.2, c.z - R * 0.4 );
-		this.keyLight.target.position.copy( c );
-		this.fillLight.position.set( c.x - R * 1.5, c.y + R * 0.6, c.z + R * 1.2 );
-		this.fillLight.target.position.copy( c );
+		this.lightRig = { center: sphere.center.clone(), radius: R };
+		this._placeLights();
 
 		const sc = this.keyLight.shadow.camera;
 		sc.left = sc.bottom = - R * 1.2;
@@ -525,7 +549,26 @@ export class Viewer extends EventTarget {
 		this.keyLight.shadow.normalBias = R * 0.002;
 
 		this.controls.maxDistance = R * 40;
+
+		// Ambient occlusion works in world units: scale it to the model.
+		this.aoPass.updateGtaoMaterial( { radius: R * 0.06, distanceFallOff: 1, thickness: R * 0.02, scale: 1, samples: 16 } );
+		this.aoPass.setSceneClipBox( box.clone().expandByScalar( R * 0.05 ) );
 		this.clearMeasurements();
+
+	}
+
+	/** Key light from the upper side (turns with the environment), fill from the opposite side. */
+	_placeLights() {
+
+		if ( ! this.lightRig ) return;
+		const { center: c, radius: R } = this.lightRig;
+		const a = ( this.keyLightAngle || 0 ) + 1.32;
+		this.keyLight.position.set( c.x + Math.cos( a ) * R * 1.65, c.y + R * 2.2, c.z + Math.sin( a ) * R * 1.65 );
+		this.keyLight.target.position.copy( c );
+		this.fillLight.position.set( c.x - Math.cos( a ) * R * 1.5, c.y + R * 0.6, c.z - Math.sin( a ) * R * 1.5 );
+		this.fillLight.target.position.copy( c );
+		this.keyLight.target.updateMatrixWorld();
+		this.fillLight.target.updateMatrixWorld();
 
 	}
 
@@ -660,6 +703,18 @@ export class Viewer extends EventTarget {
 		this.transform.camera = this.camera;
 		this.renderPass.camera = this.camera;
 		this.outlinePass.renderCamera = this.camera;
+		this.aoPass.camera = this.camera;
+		const perspective = this.camera.isPerspectiveCamera ? 1 : 0;
+		for ( const m of [ this.aoPass.gtaoMaterial, this.aoPass.pdMaterial, this.aoPass.depthRenderMaterial ] ) {
+
+			if ( m?.defines && 'PERSPECTIVE_CAMERA' in m.defines ) {
+
+				m.defines.PERSPECTIVE_CAMERA = perspective;
+				m.needsUpdate = true;
+
+			}
+
+		}
 		this._updateProjection();
 		this.controls.update();
 		this._emit( 'projectionchange', { type } );
@@ -765,23 +820,43 @@ export class Viewer extends EventTarget {
 	}
 
 	/**
-	 * The background is tone mapped together with the model, which would make the
-	 * chosen color look darker. Solve for the input that maps back to the chosen color.
+	 * The background is tone mapped together with the model, which would shift the
+	 * chosen colour. Solve for the input that maps back to exactly that colour.
 	 */
 	_untonemapped( target ) {
 
-		const exposure = this.renderer.toneMappingExposure;
-		const t = [ target.r, target.g, target.b ];
-		const c = [ ...t ].map( ( v ) => v / exposure );
-
-		for ( let i = 0; i < 200; i ++ ) {
-
-			const out = neutralToneMap( c, exposure );
-			for ( let k = 0; k < 3; k ++ ) c[ k ] = THREE.MathUtils.clamp( c[ k ] + ( t[ k ] - out[ k ] ) / exposure, 0, 64 );
-
-		}
-
+		const c = inverseToneMap( this.toneMappingMode, [ target.r, target.g, target.b ], this.renderer.toneMappingExposure );
 		return new THREE.Color().setRGB( c[ 0 ], c[ 1 ], c[ 2 ], THREE.LinearSRGBColorSpace );
+
+	}
+
+	setToneMapping( mode ) {
+
+		if ( ! TONE_MAPPINGS[ mode ] ) mode = 'neutral';
+		this.toneMappingMode = mode;
+		this.renderer.toneMapping = TONE_MAPPINGS[ mode ].value;
+		if ( this.backgroundColor ) this.setBackground( this.backgroundColor );
+
+	}
+
+	setEnvironment( name ) {
+
+		this.environmentName = name;
+		this.scene.environment = this.environments.get( name );
+
+	}
+
+	setEnvironmentRotation( degrees ) {
+
+		this.scene.environmentRotation.set( 0, THREE.MathUtils.degToRad( degrees ), 0 );
+		this.keyLightAngle = THREE.MathUtils.degToRad( degrees );
+		this._placeLights();
+
+	}
+
+	setAmbientOcclusion( on ) {
+
+		this.aoPass.enabled = on;
 
 	}
 
@@ -1114,11 +1189,37 @@ export class Viewer extends EventTarget {
 
 		}
 
-		this.controls.update( dt );
-		if ( this.mixer && this.animationPlaying ) this.mixer.update( dt );
+		const cameraMoved = this.controls.update( dt ) || !! anim;
+		const animating = !! ( this.mixer && this.animationPlaying );
+		if ( animating ) this.mixer.update( dt );
+
+		// Render on demand: heavy scenes (AO, 4K shadows, millions of triangles) should
+		// not redraw 60 times a second while nothing changes.
+		const now = performance.now();
+		const sceneChanged = now < this._dirtyUntil || animating || this.transform.dragging;
+		const idleRefresh = now - this._lastRender > 500; // catches late texture loads
+		if ( ! cameraMoved && ! sceneChanged && ! idleRefresh ) return;
+
+		// Shadows only change with the scene, not with the camera.
+		if ( sceneChanged || this._shadowsDirty ) {
+
+			this.renderer.shadowMap.needsUpdate = true;
+			this._shadowsDirty = false;
+
+		}
+
+		this._lastRender = now;
 		this._updateClipPlanes();
 		this.composer.render();
 		this.labelRenderer.render( this.scene, this.camera );
+
+	}
+
+	/** Asks for fresh frames (and shadows) for a short while after anything changes. */
+	invalidate() {
+
+		this._dirtyUntil = performance.now() + 400;
+		this._shadowsDirty = true;
 
 	}
 
@@ -1133,25 +1234,6 @@ export class Viewer extends EventTarget {
 		this.renderer.dispose();
 
 	}
-
-}
-
-/** CPU copy of three.js' NeutralToneMapping (Khronos PBR Neutral), linear in / linear out. */
-function neutralToneMap( rgb, exposure ) {
-
-	const startCompression = 0.8 - 0.04;
-	const desaturation = 0.15;
-	let c = rgb.map( ( v ) => v * exposure );
-	const x = Math.min( ...c );
-	const offset = x < 0.08 ? x - 6.25 * x * x : 0.04;
-	c = c.map( ( v ) => v - offset );
-	const peak = Math.max( ...c );
-	if ( peak < startCompression ) return c;
-	const d = 1 - startCompression;
-	const newPeak = 1 - ( d * d ) / ( peak + d - startCompression );
-	c = c.map( ( v ) => v * newPeak / peak );
-	const g = 1 - 1 / ( desaturation * ( peak - newPeak ) + 1 );
-	return c.map( ( v ) => v + ( newPeak - v ) * g );
 
 }
 

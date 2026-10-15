@@ -383,6 +383,8 @@ export async function loadUsdStage( { rootKey, rootBytes, fetchFile, manager, on
 
 	}
 
+	linearizeUsdColors( group );
+
 	// Referenced layers are composed by nested composers; wait for their textures too.
 	onProgress?.( `Loading textures… (${ textures.length })` );
 	await Promise.allSettled( textures );
@@ -392,6 +394,31 @@ export async function loadUsdStage( { rootKey, rootBytes, fetchFile, manager, on
 		missing: [ ...missing ],
 		layerCount: new Set( [ ...layers.values() ] ).size,
 	};
+
+}
+
+/**
+ * USD colour values (diffuseColor, displayColor, OmniPBR inputs…) are linear,
+ * but three.js' loader reads them as sRGB, which makes every colour darker and
+ * more saturated than in usdview or Omniverse. Undo that conversion.
+ */
+const COLOR_KEYS = [ 'color', 'emissive', 'specularColor', 'sheenColor', 'attenuationColor' ];
+
+function linearizeUsdColors( group ) {
+
+	const done = new Set();
+	group.traverse( ( o ) => {
+
+		if ( ! o.material ) return;
+		for ( const m of Array.isArray( o.material ) ? o.material : [ o.material ] ) {
+
+			if ( done.has( m ) ) continue;
+			done.add( m );
+			for ( const key of COLOR_KEYS ) if ( m[ key ]?.isColor ) m[ key ].convertLinearToSRGB();
+
+		}
+
+	} );
 
 }
 
