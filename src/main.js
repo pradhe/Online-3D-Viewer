@@ -1,0 +1,995 @@
+import { Viewer, VIEWS, RENDER_MODES, formatLength } from './viewer.js';
+import { loadFromFiles, loadFromURL, ACCEPT, baseName } from './loaders.js';
+import { exportModel, EXPORT_FORMATS } from './exporters.js';
+
+const $ = ( sel ) => document.querySelector( sel );
+const $$ = ( sel ) => [ ...document.querySelectorAll( sel ) ];
+
+const SAMPLES = {
+	city: { url: 'samples/city/city.obj', label: 'Low-poly city' },
+	shapes: { url: 'samples/shapes/shapes.usda', label: 'Shapes' },
+};
+
+const SETTINGS_KEY = 'mycity-viewer:settings';
+const DEFAULTS = {
+	renderMode: 'shaded',
+	background: '#1d2127',
+	grid: true,
+	axes: false,
+	bounds: false,
+	shadows: false,
+	doubleSided: false,
+	light: 1,
+	env: 1,
+	exposure: 1,
+	fov: 45,
+};
+
+const viewer = new Viewer( $( '#viewport' ) );
+window.viewer = viewer; // handy for debugging from the console
+
+const state = { file: null };
+
+// ======================================================================= utils
+
+function escapeHtml( s ) {
+
+	return String( s ).replace( /[&<>"']/g, ( c ) => ( { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\'': '&#39;' }[ c ] ) );
+
+}
+
+function formatBytes( n ) {
+
+	if ( ! n && n !== 0 ) return '—';
+	const units = [ 'B', 'KB', 'MB', 'GB' ];
+	let i = 0;
+	while ( n >= 1024 && i < units.length - 1 ) {
+
+		n /= 1024;
+		i ++;
+
+	}
+
+	return `${ n.toFixed( i ? 1 : 0 ) } ${ units[ i ] }`;
+
+}
+
+const fmtInt = ( n ) => n.toLocaleString();
+const nextFrame = () => new Promise( ( r ) => requestAnimationFrame( () => r() ) );
+
+function download( blob, filename ) {
+
+	const url = URL.createObjectURL( blob );
+	const a = document.createElement( 'a' );
+	a.href = url;
+	a.download = filename;
+	document.body.appendChild( a );
+	a.click();
+	a.remove();
+	setTimeout( () => URL.revokeObjectURL( url ), 1000 );
+
+}
+
+function modelStem() {
+
+	const name = state.file ? state.file.name : 'model';
+	return name.replace( /\.[^.]+$/, '' ) || 'model';
+
+}
+
+function toast( message, type = 'info', timeout = 5000 ) {
+
+	const el = document.createElement( 'div' );
+	el.className = `toast ${ type }`;
+	el.setAttribute( 'role', type === 'error' ? 'alert' : 'status' );
+	el.innerHTML = `<p></p><button aria-label="Dismiss"><svg><use href="#i-x"/></svg></button>`;
+	el.querySelector( 'p' ).textContent = message;
+	const close = () => el.remove();
+	el.querySelector( 'button' ).addEventListener( 'click', close );
+	$( '#toasts' ).appendChild( el );
+	if ( timeout ) setTimeout( close, timeout );
+
+}
+
+function showLoading( text ) {
+
+	$( '#loading-text' ).textContent = text;
+	$( '#loading' ).hidden = false;
+
+}
+
+function hideLoading() {
+
+	$( '#loading' ).hidden = true;
+
+}
+
+// ======================================================================= settings
+
+function loadSettings() {
+
+	try {
+
+		return { ...DEFAULTS, ...JSON.parse( localStorage.getItem( SETTINGS_KEY ) || '{}' ) };
+
+	} catch {
+
+		return { ...DEFAULTS };
+
+	}
+
+}
+
+let settings = loadSettings();
+
+function saveSettings() {
+
+	try {
+
+		localStorage.setItem( SETTINGS_KEY, JSON.stringify( settings ) );
+
+	} catch {
+
+		// storage unavailable (private mode etc.) – settings just won't persist
+
+	}
+
+}
+
+function applySettings() {
+
+	const s = settings;
+	if ( ! RENDER_MODES[ s.renderMode ] ) s.renderMode = 'shaded';
+
+	$( '#opt-render-mode' ).value = s.renderMode;
+	$( '#opt-background' ).value = s.background;
+	$( '#opt-grid' ).checked = s.grid;
+	$( '#opt-axes' ).checked = s.axes;
+	$( '#opt-bounds' ).checked = s.bounds;
+	$( '#opt-shadows' ).checked = s.shadows;
+	$( '#opt-double' ).checked = s.doubleSided;
+	$( '#opt-light' ).value = s.light;
+	$( '#opt-env' ).value = s.env;
+	$( '#opt-exposure' ).value = s.exposure;
+	$( '#opt-fov' ).value = s.fov;
+
+	viewer.setRenderMode( s.renderMode );
+	viewer.setBackground( s.background );
+	$( '#viewport' ).style.background = s.background;
+	viewer.setGridVisible( s.grid );
+	viewer.setAxesVisible( s.axes );
+	viewer.setBoundsVisible( s.bounds );
+	viewer.setShadows( s.shadows );
+	viewer.setDoubleSided( s.doubleSided );
+	viewer.setLightIntensity( s.light );
+	viewer.setEnvironmentIntensity( s.env );
+	viewer.setExposure( s.exposure );
+	viewer.setFov( s.fov );
+	updateOutputs();
+
+}
+
+function updateOutputs() {
+
+	$( '#out-light' ).textContent = Number( settings.light ).toFixed( 2 );
+	$( '#out-env' ).textContent = Number( settings.env ).toFixed( 2 );
+	$( '#out-exposure' ).textContent = Number( settings.exposure ).toFixed( 2 );
+	$( '#out-fov' ).textContent = `${ settings.fov }°`;
+
+}
+
+function setSetting( key, value ) {
+
+	settings[ key ] = value;
+	saveSettings();
+	applySettings();
+
+}
+
+// ======================================================================= loading
+
+async function runLoad( label, loader ) {
+
+	showLoading( `Loading ${ label }…` );
+	// Let the overlay paint before heavy synchronous parsing starts.
+	await nextFrame();
+	await nextFrame();
+	const t0 = performance.now();
+
+	try {
+
+		const result = await loader();
+		viewer.upAxis = 'y';
+		$( '#opt-up' ).value = 'y';
+		state.file = { ...result, loadMs: performance.now() - t0 };
+		viewer.setModel( result.object );
+		document.body.classList.add( 'has-model' );
+		$( '#empty-state' ).hidden = true;
+		document.title = `${ result.name } · MyCity 3D Viewer`;
+		result.warnings.forEach( ( w ) => toast( w, 'info', 10000 ) );
+		return true;
+
+	} catch ( e ) {
+
+		console.error( e );
+		toast( `Could not open ${ label }: ${ e.message || e }`, 'error', 12000 );
+		return false;
+
+	} finally {
+
+		hideLoading();
+
+	}
+
+}
+
+function setQuery( params ) {
+
+	const url = new URL( window.location.href );
+	url.search = new URLSearchParams( params ).toString();
+	history.replaceState( null, '', url );
+
+}
+
+async function openFiles( files ) {
+
+	if ( ! files.length ) return;
+	const label = files.length === 1 ? files[ 0 ].name : `${ files.length } files`;
+	if ( await runLoad( label, () => loadFromFiles( files ) ) ) setQuery( {} );
+
+}
+
+async function openURL( url ) {
+
+	if ( await runLoad( baseName( url ), () => loadFromURL( url ) ) ) setQuery( { model: url } );
+
+}
+
+async function openSample( key ) {
+
+	const sample = SAMPLES[ key ];
+	if ( ! sample ) return;
+	const url = new URL( sample.url, new URL( import.meta.env.BASE_URL, window.location.href ) ).href;
+	if ( await runLoad( sample.label, () => loadFromURL( url ) ) ) setQuery( { sample: key } );
+
+}
+
+// ---- file picker
+
+const fileInput = $( '#file-input' );
+fileInput.accept = ACCEPT;
+fileInput.addEventListener( 'change', () => {
+
+	openFiles( [ ...fileInput.files ] );
+	fileInput.value = '';
+
+} );
+$( '#btn-open' ).addEventListener( 'click', () => fileInput.click() );
+$$( '[data-action="open"]' ).forEach( ( b ) => b.addEventListener( 'click', () => fileInput.click() ) );
+$$( '[data-sample]' ).forEach( ( b ) => b.addEventListener( 'click', () => {
+
+	closeMenus();
+	openSample( b.dataset.sample );
+
+} ) );
+
+// ---- URL dialog
+
+const urlDialog = $( '#url-dialog' );
+$( '#btn-url' ).addEventListener( 'click', () => {
+
+	urlDialog.showModal();
+	$( '#url-input' ).select();
+
+} );
+urlDialog.addEventListener( 'close', () => {
+
+	if ( urlDialog.returnValue === 'ok' ) openURL( $( '#url-input' ).value.trim() );
+
+} );
+
+// ---- drag & drop (files and folders)
+
+function hasFiles( e ) {
+
+	return e.dataTransfer && [ ...e.dataTransfer.types ].includes( 'Files' );
+
+}
+
+function readEntry( entry ) {
+
+	if ( entry.isFile ) return new Promise( ( resolve ) => entry.file( ( f ) => resolve( [ f ] ), () => resolve( [] ) ) );
+
+	return new Promise( ( resolve ) => {
+
+		const reader = entry.createReader();
+		const all = [];
+		const next = () => reader.readEntries( async ( batch ) => {
+
+			if ( ! batch.length ) {
+
+				const nested = await Promise.all( all.map( readEntry ) );
+				resolve( nested.flat() );
+				return;
+
+			}
+
+			all.push( ...batch );
+			next();
+
+		}, () => resolve( [] ) );
+		next();
+
+	} );
+
+}
+
+async function filesFromDrop( dt ) {
+
+	// Entries must be grabbed synchronously, before the first await.
+	const entries = [ ...( dt.items || [] ) ].map( ( i ) => i.webkitGetAsEntry && i.webkitGetAsEntry() ).filter( Boolean );
+	const plain = [ ...dt.files ];
+	if ( ! entries.length ) return plain;
+	return ( await Promise.all( entries.map( readEntry ) ) ).flat();
+
+}
+
+let dragDepth = 0;
+window.addEventListener( 'dragenter', ( e ) => {
+
+	if ( ! hasFiles( e ) ) return;
+	e.preventDefault();
+	dragDepth ++;
+	document.body.classList.add( 'dragging' );
+
+} );
+window.addEventListener( 'dragleave', () => {
+
+	dragDepth = Math.max( 0, dragDepth - 1 );
+	if ( ! dragDepth ) document.body.classList.remove( 'dragging' );
+
+} );
+window.addEventListener( 'dragover', ( e ) => {
+
+	if ( ! hasFiles( e ) ) return;
+	e.preventDefault();
+	e.dataTransfer.dropEffect = 'copy';
+
+} );
+window.addEventListener( 'drop', async ( e ) => {
+
+	if ( ! hasFiles( e ) ) return;
+	e.preventDefault();
+	dragDepth = 0;
+	document.body.classList.remove( 'dragging' );
+	openFiles( await filesFromDrop( e.dataTransfer ) );
+
+} );
+
+// ======================================================================= menus
+
+function closeMenus( except ) {
+
+	$$( 'details.menu[open]' ).forEach( ( d ) => {
+
+		if ( d !== except ) d.open = false;
+
+	} );
+
+}
+
+document.addEventListener( 'click', ( e ) => {
+
+	const menu = e.target.closest( 'details.menu' );
+	closeMenus( menu );
+
+} );
+
+const exportList = $( '#export-list' );
+for ( const [ key, fmt ] of Object.entries( EXPORT_FORMATS ) ) {
+
+	const b = document.createElement( 'button' );
+	b.innerHTML = `${ escapeHtml( fmt.label ) } <small>.${ key }</small>`;
+	b.addEventListener( 'click', () => {
+
+		closeMenus();
+		runExport( key );
+
+	} );
+	exportList.appendChild( b );
+
+}
+
+async function runExport( format ) {
+
+	if ( ! viewer.model ) return;
+	showLoading( `Exporting ${ format.toUpperCase() }…` );
+	await nextFrame();
+
+	try {
+
+		const blob = await exportModel( viewer.model, format, ( n ) => viewer.originalMaterials.get( n ) ?? n.material );
+		download( blob, `${ modelStem() }.${ format }` );
+		toast( `Exported ${ modelStem() }.${ format } (${ formatBytes( blob.size ) })`, 'success', 4000 );
+
+	} catch ( e ) {
+
+		console.error( e );
+		toast( `Export failed: ${ e.message || e }`, 'error', 10000 );
+
+	} finally {
+
+		hideLoading();
+
+	}
+
+}
+
+$( '#btn-screenshot' ).addEventListener( 'click', async () => {
+
+	const dataUrl = viewer.screenshot();
+	const blob = await ( await fetch( dataUrl ) ).blob();
+	download( blob, `${ modelStem() }-screenshot.png` );
+
+} );
+
+$( '#btn-fullscreen' ).addEventListener( 'click', () => {
+
+	if ( document.fullscreenElement ) document.exitFullscreen();
+	else document.documentElement.requestFullscreen?.().catch( () => toast( 'Fullscreen is not available here.' ) );
+
+} );
+
+const helpDialog = $( '#help-dialog' );
+$( '#btn-help' ).addEventListener( 'click', () => helpDialog.showModal() );
+
+// ---- panels (mobile)
+
+$( '#toggle-left' ).addEventListener( 'click', () => {
+
+	document.body.classList.toggle( 'show-left' );
+	document.body.classList.remove( 'show-right' );
+
+} );
+$( '#toggle-right' ).addEventListener( 'click', () => {
+
+	document.body.classList.toggle( 'show-right' );
+	document.body.classList.remove( 'show-left' );
+
+} );
+$( '#viewport' ).addEventListener( 'pointerdown', () => document.body.classList.remove( 'show-left', 'show-right' ) );
+
+// ======================================================================= scene tree
+
+const treeEl = $( '#tree' );
+const rows = new Map(); // Object3D -> { row, eye, caret, children, depth, built, open }
+const searchInput = $( '#tree-search' );
+
+function labelOf( o ) {
+
+	return o.name || o.type;
+
+}
+
+function iconOf( o ) {
+
+	if ( o.isMesh ) return 'i-mesh';
+	if ( o.isLight ) return 'i-light';
+	if ( o.isCamera ) return 'i-camera';
+	return o.children.length ? 'i-group' : 'i-dot';
+
+}
+
+function createRow( obj, depth, { flat = false } = {} ) {
+
+	const wrap = document.createElement( 'div' );
+	const row = document.createElement( 'div' );
+	row.className = 'tree-row';
+	row.setAttribute( 'role', 'treeitem' );
+	row.style.paddingLeft = `${ 4 + depth * 14 }px`;
+
+	const hasKids = ! flat && obj.children.length > 0;
+	row.innerHTML = `
+		<button class="tree-caret ${ hasKids ? '' : 'leaf' }" tabindex="-1" aria-label="Expand"><svg><use href="#i-chevron"/></svg></button>
+		<svg class="tree-icon"><use href="#${ iconOf( obj ) }"/></svg>
+		<span class="tree-name"></span>
+		<button class="tree-eye" title="Show / hide" aria-label="Toggle visibility"><svg><use href="#i-eye"/></svg></button>`;
+	const name = row.querySelector( '.tree-name' );
+	name.textContent = labelOf( obj );
+	name.title = labelOf( obj );
+
+	const children = document.createElement( 'div' );
+	children.hidden = true;
+	wrap.append( row, children );
+
+	const entry = { row, eye: row.querySelector( '.tree-eye use' ), caret: row.querySelector( '.tree-caret' ), children, depth, built: false, open: false };
+	rows.set( obj, entry );
+
+	entry.caret.addEventListener( 'click', ( e ) => {
+
+		e.stopPropagation();
+		setExpanded( obj, ! entry.open );
+
+	} );
+	row.querySelector( '.tree-eye' ).addEventListener( 'click', ( e ) => {
+
+		e.stopPropagation();
+		viewer.setVisible( [ obj ], ! obj.visible );
+
+	} );
+	row.addEventListener( 'click', ( e ) => viewer.select( [ obj ], { toggle: e.shiftKey || e.ctrlKey || e.metaKey } ) );
+	row.addEventListener( 'dblclick', () => viewer.focus( [ obj ] ) );
+
+	syncRowVisibility( obj, entry );
+	return wrap;
+
+}
+
+function setExpanded( obj, open ) {
+
+	const entry = rows.get( obj );
+	if ( ! entry || ! obj.children.length ) return;
+
+	if ( open && ! entry.built ) {
+
+		const frag = document.createDocumentFragment();
+		obj.children.forEach( ( c ) => frag.appendChild( createRow( c, entry.depth + 1 ) ) );
+		entry.children.appendChild( frag );
+		entry.built = true;
+
+	}
+
+	entry.open = open;
+	entry.children.hidden = ! open;
+	entry.caret.classList.toggle( 'open', open );
+
+}
+
+function syncRowVisibility( obj, entry = rows.get( obj ) ) {
+
+	if ( ! entry ) return;
+	entry.row.classList.toggle( 'hidden-obj', ! obj.visible );
+	entry.eye.setAttribute( 'href', obj.visible ? '#i-eye' : '#i-eye-off' );
+
+}
+
+function buildTree() {
+
+	treeEl.innerHTML = '';
+	rows.clear();
+	const model = viewer.model;
+
+	if ( ! model ) {
+
+		treeEl.innerHTML = '<div class="tree-empty">No model loaded.</div>';
+		$( '#tree-count' ).textContent = '';
+		return;
+
+	}
+
+	const query = searchInput.value.trim().toLowerCase();
+
+	if ( query ) {
+
+		const matches = [];
+		model.traverse( ( o ) => {
+
+			if ( o !== model && labelOf( o ).toLowerCase().includes( query ) ) matches.push( o );
+
+		} );
+		const shown = matches.slice( 0, 500 );
+		shown.forEach( ( o ) => treeEl.appendChild( createRow( o, 0, { flat: true } ) ) );
+		if ( ! matches.length ) treeEl.innerHTML = '<div class="tree-empty">No matches.</div>';
+		$( '#tree-count' ).textContent = `${ matches.length } found`;
+
+	} else {
+
+		treeEl.appendChild( createRow( model, 0 ) );
+		// Auto-expand the first levels while they are small.
+		let level = [ model ];
+		for ( let d = 0; d < 3 && level.length === 1; d ++ ) {
+
+			setExpanded( level[ 0 ], true );
+			level = level[ 0 ].children;
+
+		}
+
+		let count = 0;
+		model.traverse( () => count ++ );
+		$( '#tree-count' ).textContent = `${ fmtInt( count ) } objects`;
+
+	}
+
+	syncTreeSelection( false );
+
+}
+
+function syncTreeSelection( scroll = true ) {
+
+	rows.forEach( ( e ) => e.row.classList.remove( 'selected' ) );
+	let first = null;
+
+	for ( const obj of viewer.selection ) {
+
+		if ( ! searchInput.value.trim() ) {
+
+			// Expand ancestors so the row exists.
+			const chain = [];
+			for ( let p = obj.parent; p && p !== viewer.pivot; p = p.parent ) chain.unshift( p );
+			chain.forEach( ( p ) => setExpanded( p, true ) );
+
+		}
+
+		const entry = rows.get( obj );
+
+		if ( entry ) {
+
+			entry.row.classList.add( 'selected' );
+			first = first || entry.row;
+
+		}
+
+	}
+
+	if ( scroll && first ) first.scrollIntoView( { block: 'nearest' } );
+
+}
+
+let searchTimer;
+searchInput.addEventListener( 'input', () => {
+
+	clearTimeout( searchTimer );
+	searchTimer = setTimeout( buildTree, 150 );
+
+} );
+
+$( '#btn-show-all' ).addEventListener( 'click', () => viewer.showAll() );
+$( '#btn-collapse' ).addEventListener( 'click', () => {
+
+	searchInput.value = '';
+	treeEl.innerHTML = '';
+	rows.clear();
+	if ( viewer.model ) {
+
+		treeEl.appendChild( createRow( viewer.model, 0 ) );
+		setExpanded( viewer.model, true );
+
+	}
+
+} );
+
+// ======================================================================= selection panel
+
+const selectionBody = $( '#selection-body' );
+
+function fmtVec( v ) {
+
+	return [ v.x, v.y, v.z ].map( ( n ) => formatLength( n ) ).join( ', ' );
+
+}
+
+function materialRow( m ) {
+
+	const color = m.color ? `#${ m.color.getHexString() }` : 'transparent';
+	const tags = [];
+	if ( m.map ) tags.push( 'texture' );
+	if ( m.transparent && m.opacity < 1 ) tags.push( `α ${ m.opacity.toFixed( 2 ) }` );
+	const type = m.type.replace( /^Mesh|Material$/g, '' );
+	return `<li><span class="chip" style="background:${ color }"></span><span>${ escapeHtml( m.name || '(unnamed)' ) }</span><small>${ escapeHtml( [ type, ...tags ].join( ' · ' ) ) }</small></li>`;
+
+}
+
+function renderSelection() {
+
+	const sel = [ ...viewer.selection ];
+
+	if ( ! sel.length ) {
+
+		selectionBody.innerHTML = '<p class="muted">Click an object in the view or the scene tree.<br/>Shift / Ctrl + click to select several.</p>';
+		return;
+
+	}
+
+	let vertices = 0;
+	let triangles = 0;
+	const materials = new Set();
+
+	for ( const o of sel ) {
+
+		const s = viewer.getStats( o );
+		vertices += s.vertices;
+		triangles += s.triangles;
+		s.materials.forEach( ( m ) => materials.add( m ) );
+
+	}
+
+	const size = viewer.getSize( sel );
+	const single = sel.length === 1 ? sel[ 0 ] : null;
+	const anyVisible = sel.some( ( o ) => o.visible );
+	const mats = [ ...materials ];
+
+	selectionBody.innerHTML = `
+		<div>
+			<div class="sel-title">${ escapeHtml( single ? labelOf( single ) : `${ sel.length } objects` ) }</div>
+			<div class="sel-type">${ escapeHtml( single ? single.type : 'Multiple selection' ) }</div>
+		</div>
+		<dl class="props">
+			<dt>Vertices</dt><dd>${ fmtInt( vertices ) }</dd>
+			<dt>Triangles</dt><dd>${ fmtInt( triangles ) }</dd>
+			${ single && single.children.length ? `<dt>Children</dt><dd>${ fmtInt( single.children.length ) }</dd>` : '' }
+			<dt>Size</dt><dd>${ fmtVec( size ) }</dd>
+			${ single ? `<dt>Position</dt><dd id="sel-position">${ fmtVec( single.position ) }</dd>` : '' }
+		</dl>
+		${ mats.length ? `<div class="sub-label">Materials (${ mats.length })</div><ul class="materials">${ mats.slice( 0, 8 ).map( materialRow ).join( '' ) }${ mats.length > 8 ? `<li class="muted">+ ${ mats.length - 8 } more</li>` : '' }</ul>` : '' }
+		<div class="button-row">
+			<button class="btn small" data-act="focus">Focus</button>
+			<button class="btn small" data-act="hide">${ anyVisible ? 'Hide' : 'Show' }</button>
+			<button class="btn small" data-act="isolate">Isolate</button>
+			<button class="btn small" data-act="deselect">Deselect</button>
+		</div>
+		${ single ? `
+		<div class="sub-label">Transform gizmo</div>
+		<div class="button-row">
+			<div class="seg" id="gizmo-seg">
+				<button data-gizmo="" title="Off (Q)">Off</button>
+				<button data-gizmo="translate" title="Move (W)">Move</button>
+				<button data-gizmo="rotate" title="Rotate (E)">Rotate</button>
+				<button data-gizmo="scale" title="Scale (R)">Scale</button>
+			</div>
+			<button class="btn small" data-act="reset">Reset</button>
+		</div>` : '' }`;
+
+	selectionBody.querySelectorAll( '[data-act]' ).forEach( ( b ) => b.addEventListener( 'click', () => {
+
+		const act = b.dataset.act;
+		if ( act === 'focus' ) viewer.focus();
+		if ( act === 'hide' ) viewer.setVisible( sel, ! anyVisible );
+		if ( act === 'isolate' ) viewer.isolate();
+		if ( act === 'deselect' ) viewer.clearSelection();
+		if ( act === 'reset' ) viewer.resetTransform();
+
+	} ) );
+
+	selectionBody.querySelectorAll( '[data-gizmo]' ).forEach( ( b ) => b.addEventListener( 'click', () => viewer.setGizmoMode( b.dataset.gizmo || null ) ) );
+	syncGizmoButtons();
+
+}
+
+function syncGizmoButtons() {
+
+	selectionBody.querySelectorAll( '[data-gizmo]' ).forEach( ( b ) => {
+
+		b.classList.toggle( 'active', ( b.dataset.gizmo || null ) === viewer.gizmoMode );
+
+	} );
+
+}
+
+// ======================================================================= model info
+
+function renderModelInfo() {
+
+	const el = $( '#model-info' );
+	const f = state.file;
+
+	if ( ! viewer.model || ! f ) {
+
+		el.innerHTML = '<dt>—</dt><dd class="muted">No model loaded</dd>';
+		return;
+
+	}
+
+	const s = viewer.getStats();
+	const size = viewer.getSize();
+	el.innerHTML = `
+		<dt>File</dt><dd>${ escapeHtml( f.name ) }</dd>
+		<dt>Format</dt><dd>${ escapeHtml( f.format.toUpperCase() ) }</dd>
+		<dt>File size</dt><dd>${ formatBytes( f.size ) }</dd>
+		<dt>Objects</dt><dd>${ fmtInt( s.objects ) }</dd>
+		<dt>Meshes</dt><dd>${ fmtInt( s.meshes ) }</dd>
+		<dt>Vertices</dt><dd>${ fmtInt( s.vertices ) }</dd>
+		<dt>Triangles</dt><dd>${ fmtInt( s.triangles ) }</dd>
+		<dt>Materials</dt><dd>${ fmtInt( s.materials.size ) }</dd>
+		<dt>Textures</dt><dd>${ fmtInt( s.textures.size ) }</dd>
+		<dt>Dimensions</dt><dd>${ formatLength( size.x ) } × ${ formatLength( size.y ) } × ${ formatLength( size.z ) }</dd>
+		${ viewer.model.animations?.length ? `<dt>Animations</dt><dd>${ viewer.model.animations.length }</dd>` : '' }
+		<dt>Load time</dt><dd>${ ( f.loadMs / 1000 ).toFixed( 2 ) } s</dd>`;
+
+}
+
+function renderAnimation() {
+
+	const clips = viewer.model?.animations || [];
+	$( '#section-animation' ).hidden = ! clips.length;
+	if ( ! clips.length ) return;
+	$( '#anim-clip' ).innerHTML = clips.map( ( c, i ) => `<option value="${ i }">${ escapeHtml( c.name || `Clip ${ i + 1 }` ) } (${ c.duration.toFixed( 1 ) }s)</option>` ).join( '' );
+	$( '#anim-toggle' ).textContent = viewer.animationPlaying ? 'Pause' : 'Play';
+
+}
+
+$( '#anim-clip' ).addEventListener( 'change', ( e ) => viewer.playAnimation( Number( e.target.value ) ) );
+$( '#anim-toggle' ).addEventListener( 'click', () => viewer.setAnimationPlaying( ! viewer.animationPlaying ) );
+
+// ======================================================================= display controls
+
+const renderModeSelect = $( '#opt-render-mode' );
+renderModeSelect.innerHTML = Object.entries( RENDER_MODES ).map( ( [ k, v ] ) => `<option value="${ k }">${ v }</option>` ).join( '' );
+renderModeSelect.addEventListener( 'change', () => setSetting( 'renderMode', renderModeSelect.value ) );
+
+$( '#opt-background' ).addEventListener( 'input', ( e ) => setSetting( 'background', e.target.value ) );
+$$( '[data-bg]' ).forEach( ( b ) => b.addEventListener( 'click', () => setSetting( 'background', b.dataset.bg ) ) );
+
+const checkMap = { 'opt-grid': 'grid', 'opt-axes': 'axes', 'opt-bounds': 'bounds', 'opt-shadows': 'shadows', 'opt-double': 'doubleSided' };
+for ( const [ id, key ] of Object.entries( checkMap ) ) {
+
+	$( `#${ id }` ).addEventListener( 'change', ( e ) => setSetting( key, e.target.checked ) );
+
+}
+
+const rangeMap = { 'opt-light': 'light', 'opt-env': 'env', 'opt-exposure': 'exposure', 'opt-fov': 'fov' };
+for ( const [ id, key ] of Object.entries( rangeMap ) ) {
+
+	$( `#${ id }` ).addEventListener( 'input', ( e ) => setSetting( key, Number( e.target.value ) ) );
+
+}
+
+$( '#opt-up' ).addEventListener( 'change', ( e ) => viewer.setUpAxis( e.target.value ) );
+$( '#btn-reset-display' ).addEventListener( 'click', () => {
+
+	settings = { ...DEFAULTS };
+	saveSettings();
+	applySettings();
+
+} );
+
+function setAutoRotate( on ) {
+
+	viewer.setAutoRotate( on );
+	$( '#opt-autorotate' ).checked = on;
+	$( '#btn-autorotate' ).classList.toggle( 'active', on );
+
+}
+
+$( '#opt-autorotate' ).addEventListener( 'change', ( e ) => setAutoRotate( e.target.checked ) );
+$( '#btn-autorotate' ).addEventListener( 'click', () => setAutoRotate( ! viewer.controls.autoRotate ) );
+
+// ======================================================================= view toolbar
+
+$( '#btn-fit' ).addEventListener( 'click', () => viewer.focus() );
+$$( '[data-view]' ).forEach( ( b ) => b.addEventListener( 'click', () => viewer.setView( b.dataset.view ) ) );
+
+function toggleProjection() {
+
+	viewer.setProjection( viewer.camera.isOrthographicCamera ? 'perspective' : 'orthographic' );
+
+}
+
+$( '#btn-projection' ).addEventListener( 'click', toggleProjection );
+viewer.addEventListener( 'projectionchange', () => {
+
+	const ortho = viewer.camera.isOrthographicCamera;
+	$( '#btn-projection' ).textContent = ortho ? 'Ortho' : 'Persp';
+	$( '#btn-projection' ).classList.toggle( 'active', ortho );
+
+} );
+
+$( '#btn-measure' ).addEventListener( 'click', () => viewer.setMeasuring( ! viewer.measuring ) );
+$( '#btn-measure-clear' ).addEventListener( 'click', () => viewer.clearMeasurements() );
+
+viewer.addEventListener( 'measurechange', () => {
+
+	$( '#btn-measure' ).classList.toggle( 'active', viewer.measuring );
+	$( '#measure-hud' ).hidden = ! viewer.measuring;
+	$( '#measure-list' ).innerHTML = viewer.measurements.map( ( m, i ) => `<li>#${ i + 1 }&nbsp; ${ formatLength( m.distance ) }</li>` ).join( '' );
+
+} );
+
+// ======================================================================= viewer events
+
+viewer.addEventListener( 'modelchange', () => {
+
+	searchInput.value = '';
+	buildTree();
+	renderSelection();
+	renderModelInfo();
+	renderAnimation();
+
+} );
+
+viewer.addEventListener( 'selectionchange', () => {
+
+	syncTreeSelection();
+	renderSelection();
+
+} );
+
+viewer.addEventListener( 'visibilitychange', () => {
+
+	rows.forEach( ( entry, obj ) => syncRowVisibility( obj, entry ) );
+	renderSelection();
+
+} );
+
+viewer.addEventListener( 'gizmochange', syncGizmoButtons );
+viewer.addEventListener( 'animationchange', () => {
+
+	$( '#anim-toggle' ).textContent = viewer.animationPlaying ? 'Pause' : 'Play';
+
+} );
+
+let transformQueued = false;
+viewer.addEventListener( 'transformchange', () => {
+
+	if ( transformQueued ) return;
+	transformQueued = true;
+	requestAnimationFrame( () => {
+
+		transformQueued = false;
+		const [ obj ] = viewer.selection;
+		const pos = $( '#sel-position' );
+		if ( obj && pos ) pos.textContent = fmtVec( obj.position );
+
+	} );
+
+} );
+
+// ======================================================================= keyboard
+
+window.addEventListener( 'keydown', ( e ) => {
+
+	const target = e.target;
+	if ( target.closest && target.closest( 'input, select, textarea, dialog' ) ) return;
+
+	if ( ( e.ctrlKey || e.metaKey ) && e.key.toLowerCase() === 'o' ) {
+
+		e.preventDefault();
+		fileInput.click();
+		return;
+
+	}
+
+	if ( e.ctrlKey || e.metaKey || e.altKey ) return;
+
+	const key = e.key.toLowerCase();
+	const viewKeys = [ 'front', 'back', 'left', 'right', 'top', 'bottom', 'iso' ];
+
+	if ( key === '?' ) return helpDialog.showModal();
+	if ( ! viewer.model ) return;
+
+	if ( /^[1-7]$/.test( key ) ) return viewer.setView( viewKeys[ Number( key ) - 1 ] );
+
+	switch ( key ) {
+
+		case 'f': viewer.focus(); break;
+		case 'p': toggleProjection(); break;
+		case 'g': setSetting( 'grid', ! settings.grid ); break;
+		case 'm': viewer.setMeasuring( ! viewer.measuring ); break;
+		case 'h': if ( viewer.selection.size ) viewer.setVisible( [ ...viewer.selection ], false ); break;
+		case 'i': viewer.isolate(); break;
+		case 'u': viewer.showAll(); break;
+		case 'w': viewer.setGizmoMode( 'translate' ); break;
+		case 'e': viewer.setGizmoMode( 'rotate' ); break;
+		case 'r': viewer.setGizmoMode( 'scale' ); break;
+		case 'q': viewer.setGizmoMode( null ); break;
+		case 'escape':
+			if ( viewer.measuring ) viewer.setMeasuring( false );
+			else if ( viewer.gizmoMode ) viewer.setGizmoMode( null );
+			else viewer.clearSelection();
+			break;
+		default: return;
+
+	}
+
+	e.preventDefault();
+
+} );
+
+// ======================================================================= start
+
+applySettings();
+buildTree();
+renderSelection();
+
+const params = new URLSearchParams( window.location.search );
+if ( params.get( 'model' ) ) openURL( params.get( 'model' ) );
+else if ( SAMPLES[ params.get( 'sample' ) ] ) openSample( params.get( 'sample' ) );

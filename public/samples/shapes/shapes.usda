@@ -1,0 +1,126 @@
+#usda 1.0
+(
+    defaultPrim = "Shapes"
+    upAxis = "Z"
+    metersPerUnit = 1
+    doc = "Sample scene for the MyCity 3D viewer"
+)
+
+def Xform "Shapes" (
+    kind = "component"
+)
+{
+    def Scope "Materials"
+    {
+        def Material "Red"
+        {
+            token outputs:surface.connect = </Shapes/Materials/Red/Surface.outputs:surface>
+
+            def Shader "Surface"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.85, 0.2, 0.18)
+                float inputs:roughness = 0.4
+                float inputs:metallic = 0
+                token outputs:surface
+            }
+        }
+
+        def Material "Blue"
+        {
+            token outputs:surface.connect = </Shapes/Materials/Blue/Surface.outputs:surface>
+
+            def Shader "Surface"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.2, 0.4, 0.9)
+                float inputs:roughness = 0.3
+                float inputs:metallic = 0.2
+                token outputs:surface
+            }
+        }
+
+        def Material "Gold"
+        {
+            token outputs:surface.connect = </Shapes/Materials/Gold/Surface.outputs:surface>
+
+            def Shader "Surface"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.95, 0.7, 0.2)
+                float inputs:roughness = 0.25
+                float inputs:metallic = 0.9
+                token outputs:surface
+            }
+        }
+
+        def Material "Ground"
+        {
+            token outputs:surface.connect = </Shapes/Materials/Ground/Surface.outputs:surface>
+
+            def Shader "Surface"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.55, 0.57, 0.6)
+                float inputs:roughness = 0.9
+                token outputs:surface
+            }
+        }
+    }
+
+    def Mesh "Base" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        int[] faceVertexCounts = [4, 4, 4, 4, 4, 4]
+        int[] faceVertexIndices = [0, 3, 2, 1, 4, 5, 6, 7, 0, 1, 5, 4, 1, 2, 6, 5, 2, 3, 7, 6, 3, 0, 4, 7]
+        point3f[] points = [(-3, -3, 0), (3, -3, 0), (3, 3, 0), (-3, 3, 0), (-3, -3, 0.2), (3, -3, 0.2), (3, 3, 0.2), (-3, 3, 0.2)]
+        uniform token subdivisionScheme = "none"
+        rel material:binding = </Shapes/Materials/Ground>
+    }
+
+    def Cube "Box" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        double size = 1.6
+        double3 xformOp:translate = (-1.5, -1.2, 1.0)
+        float3 xformOp:rotateXYZ = (0, 0, 25)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ"]
+        rel material:binding = </Shapes/Materials/Red>
+    }
+
+    def Sphere "Ball" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        double radius = 0.9
+        double3 xformOp:translate = (1.4, -1.0, 1.1)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+        rel material:binding = </Shapes/Materials/Blue>
+    }
+
+    def Cylinder "Column" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        double radius = 0.5
+        double height = 2.4
+        token axis = "Z"
+        double3 xformOp:translate = (-1.0, 1.6, 1.4)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+        rel material:binding = </Shapes/Materials/Gold>
+    }
+
+    def Cone "Spire" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        double radius = 0.7
+        double height = 1.8
+        token axis = "Z"
+        double3 xformOp:translate = (1.5, 1.6, 1.1)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+        rel material:binding = </Shapes/Materials/Red>
+    }
+}
