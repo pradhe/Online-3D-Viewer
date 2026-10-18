@@ -2,7 +2,7 @@
 
 Written 2026-10-18.
 
-The viewer already opens OBJ and multi-file USD scenes, edits colours and properties, and exports. The next step is making it reliable enough that people trust it with real work, in six phases.
+The viewer already opens OBJ and multi-file USD scenes, edits colours and properties, and exports. The next step is making it reliable enough that people trust it with real work, in seven phases.
 
 ## Where we are
 
@@ -22,8 +22,9 @@ Stability comes first because every later feature is only as trustworthy as the 
 | 4. Interface | Keyboard-only use works; layout holds at phone width |
 | 5. Engineering | Files split into smaller modules; faster first load |
 | 6. Release | Licence, privacy statement and hosting in place |
+| 7. AI assistant | A chat request changes the model and Undo reverses it |
 
-Phase 4 (the UI redesign) can run alongside Phase 1; the other phases follow in order.
+Phase 4 (the UI redesign) can run alongside Phase 1; the other phases follow in order. Phase 7 comes last because it needs the tests from Phase 1 and undo from Phase 3.
 
 ## Phase 1: Stability and trust
 
@@ -115,6 +116,24 @@ Goal: it can be released to the public, or to customers, without surprises.
 
 **Done when:** the repo has a licence, the privacy statement is on the site, and hosting works with the repo in the state you want.
 
+## Phase 7: AI assistant (live chat)
+
+Goal: a chat panel inside the viewer where you type "hide the roof", "make the walls light grey" or "show the front view" and the viewer does it. It builds on Phase 1 (tests) and Phase 3 (undo and redo), so it comes last.
+
+| Item | What we do | Why it matters | Effort |
+| --- | --- | --- | --- |
+| Action layer | Turn every viewer operation (select, isolate, hide, colour, transform, camera, measure, section, export) into a named command with typed parameters | The chat and the buttons call the same commands, so they behave the same and can be tested and undone | M |
+| Chat panel | Docked panel with message history, streaming replies, a visible list of the actions taken, and a Stop button | The live feel; you always see what the assistant changed | M |
+| Model connection | Send the chat and the command list to the Claude API with tool use; the model replies with commands the viewer runs. Two options: your own API key kept in the browser, or a small backend proxy that holds the key and limits use | A static GitHub Pages site cannot keep a secret key, so this choice decides cost and who can use it | M |
+| Scene awareness | Send a compact summary only (object names, USD paths, materials, bounding boxes, current selection), never geometry or textures | "The left window" can be resolved to an object, and model files stay on the device | M |
+| Safety | Edits are undoable, bulk or destructive changes ask for confirmation, a cap on commands per message, and the assistant can only call viewer commands | Prevents surprises from a misread request | S |
+| Questions about the model | Answer "how many meshes", "which materials are used", "what is this prim" from the metadata | Useful even when nothing is changed | S |
+| Evaluation set | Sample prompts with the expected commands, run in CI | Keeps behaviour stable when the model or the commands change | M |
+
+The feature is off by default and the privacy statement must say that chat messages and the scene summary go to the model provider.
+
+**Done when:** typing "isolate the fridge and make it red" does it in one message, Undo reverses it, and nothing leaves the browser except the chat text and the scene summary.
+
 ## Decisions and next step
 
 Start with tests and CI, then Web Workers with progress and cancel, then glTF/GLB input and the validation report, with the UI redesign running alongside.
@@ -125,3 +144,4 @@ Decisions that change the plan:
 - [ ] Hosting while the repo is private: Netlify or Cloudflare Pages, or make the repo public?
 - [ ] Exact USD results: invest in a WebAssembly build of Pixar USD (large download, high accuracy), or keep extending the current loader?
 - [ ] Which extra formats matter most: glTF/GLB first, then FBX, STL, PLY, 3MF?
+- [ ] AI assistant: bring-your-own API key in the browser, or a backend proxy that holds the key?
