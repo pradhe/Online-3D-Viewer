@@ -30,6 +30,7 @@ Live: https://pradhe.github.io/Online-3D-Viewer/ — every push to `main` deploy
 
 ## Status / next steps
 
+- Full plan: `ROADMAP.md` (six phases: stability, formats, features, interface, engineering, release).
 - Next: **UI redesign** — more polished, industry-standard look (cleaner toolbar, tabbed side panels, refined dark theme), keeping all features.
 - Known limits: no inherits/specializes, `over` prims in text layers ignored, sublayer merge is per-prim, MDL approximated, no DDS/EXR, metadata only from the root layer.
 - The NVIDIA "USD Explorer" sample (cloudfront host) was never tested directly — the network policy blocks that host.
