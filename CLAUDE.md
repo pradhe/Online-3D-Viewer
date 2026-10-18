@@ -18,6 +18,9 @@ Live: https://pradhe.github.io/Online-3D-Viewer/ — every push to `main` deploy
 
 ## Decisions and pitfalls (verified)
 
+- Errors: `src/errors.js` — throw `ViewerError(message, hint)` for anything the user can act on; `checkUsdBytes` rejects empty/non-USD files early and `assertHasGeometry` fails a load that drew nothing (never open an empty scene as a success). `describeError` maps raw errors (truncated files, memory, network). Global `error`/`unhandledrejection` and WebGL context loss are handled in `main.js`.
+- Crash reporting (`src/reporting.js`) is opt-in and off unless built with `VITE_ERROR_ENDPOINT`; it sends scrubbed error text only (no file names/URLs/model data), max 5 per session.
+
 - USD colour values are **linear**. three.js' loader reads them as sRGB; `usdStage.linearizeUsdColors` undoes that and the editor writes linear values back. Checked against Pixar USD.
 - `assetInfo` identifiers are labels, not links — only references/payloads/sublayers are followed; attribute values are fetched only when they are images.
 - Binary USD inlines small vectors as int8 per component; three.js missed double/half vectors (crashed on `translate (0,45,0)`).

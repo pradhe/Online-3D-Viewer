@@ -5,6 +5,8 @@ import { loadFromFiles, loadFromURL, baseName } from './loaders.js';
 import { exportModel, EXPORT_FORMATS } from './exporters.js';
 import { attachUsdPaths } from './usdMetadata.js';
 import { Editor } from './editor.js';
+import { formatError, webglAvailable } from './errors.js';
+import { reportError, reportingAvailable, reportingEnabled, setReportingEnabled } from './reporting.js';
 
 const $ = ( sel ) => document.querySelector( sel );
 const $$ = ( sel ) => [ ...document.querySelectorAll( sel ) ];
@@ -32,6 +34,13 @@ const DEFAULTS = {
 	exposure: 1,
 	fov: 45,
 };
+
+if ( ! webglAvailable() ) {
+
+	$( '#viewport' ).innerHTML = '<div class="fatal"><h2>3D graphics are not available</h2><p>This viewer needs WebGL 2. Turn on hardware acceleration in your browser settings, update your browser or graphics driver, or try another browser.</p></div>';
+	throw new Error( 'WebGL 2 is not available' );
+
+}
 
 const viewer = new Viewer( $( '#viewport' ) );
 window.viewer = viewer; // handy for debugging from the console
@@ -271,7 +280,8 @@ async function runLoad( label, loader ) {
 	} catch ( e ) {
 
 		console.error( e );
-		toast( `Could not open ${ label }: ${ e.message || e }`, 'error', 12000 );
+		toast( `Could not open ${ label }. ${ formatError( e ) }`, 'error', 12000 );
+		if ( e?.name !== 'ViewerError' ) reportError( e, 'load' );
 		return false;
 
 	} finally {
@@ -1241,3 +1251,37 @@ renderSelection();
 const params = new URLSearchParams( window.location.search );
 if ( params.get( 'model' ) ) openURL( params.get( 'model' ) );
 else if ( SAMPLES[ params.get( 'sample' ) ] ) openSample( params.get( 'sample' ) );
+
+// ================================================================ error handling
+
+let lastCrashToast = 0;
+
+/** Anything that slips past a specific handler: tell the user once in a while, and report if allowed. */
+function onUnexpected( error ) {
+
+	const text = String( error?.message || error || '' );
+	if ( /ResizeObserver loop/.test( text ) ) return; // harmless browser notice
+	console.error( error );
+	reportError( error, 'uncaught' );
+
+	if ( Date.now() - lastCrashToast < 30000 ) return;
+	lastCrashToast = Date.now();
+	toast( 'Something went wrong. Your model is still open; if the view looks wrong, reload the page.', 'error', 8000 );
+
+}
+
+window.addEventListener( 'error', ( e ) => onUnexpected( e.error || e.message ) );
+window.addEventListener( 'unhandledrejection', ( e ) => onUnexpected( e.reason ) );
+
+viewer.addEventListener( 'contextlost', () => toast( 'The graphics context was lost, so the view went blank. It should come back by itself; if not, reload the page.', 'error', 10000 ) );
+viewer.addEventListener( 'contextrestored', () => toast( 'Graphics restored.', 'success', 3000 ) );
+
+if ( reportingAvailable ) {
+
+	const row = $( '#report-row' );
+	const box = $( '#opt-report' );
+	row.hidden = false;
+	box.checked = reportingEnabled();
+	box.addEventListener( 'change', () => setReportingEnabled( box.checked ) );
+
+}

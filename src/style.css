@@ -571,3 +571,19 @@ body:not(.has-model) .view-toolbar { display: none; }
 .props .missing-head, .props .missing-count { color: var(--danger); }
 .props .missing-list { grid-column: 1 / -1; text-align: left; }
 .missing-list textarea { width: 100%; resize: vertical; background: var(--bg); border: 1px solid var(--line); border-radius: 5px; padding: 6px; font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); white-space: pre; }
+
+/* ---- errors and privacy */
+.fatal {
+	display: grid;
+	place-content: center;
+	gap: 8px;
+	height: 100%;
+	padding: 24px;
+	text-align: center;
+	color: var(--muted);
+}
+.fatal h2 { color: var(--text); margin: 0; }
+.fatal p { max-width: 46ch; margin: 0 auto; }
+.privacy-note { color: var(--muted); font-size: 12px; margin: 12px 0 4px; }
+#report-row[hidden] { display: none; }
+#report-row { display: flex; gap: 8px; align-items: center; font-size: 12px; margin: 4px 0 8px; }

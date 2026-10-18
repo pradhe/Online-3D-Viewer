@@ -77,3 +77,30 @@ test( 'draws something on the canvas', async ( { page } ) => {
 	expect( shot.length ).toBeGreaterThan( 8_000 );
 
 } );
+
+for ( const [ file, message ] of [
+	[ 'empty.usda', /is empty/ ],
+	[ 'garbage.usd', /not a valid USD file/ ],
+	[ 'broken.usdc', /damaged or incomplete/ ],
+	[ 'broken.usda', /no geometry/ ],
+	[ 'broken.obj', /no geometry/ ],
+] ) {
+
+	test( `${ file }: says what is wrong`, async ( { page } ) => {
+
+		await page.goto( '' );
+		await page.setInputFiles( '#file-input', join( fixtures, file ) );
+		await expect( page.locator( '.toast.error' ) ).toContainText( message );
+		expect( await meshCount( page ) ).toBe( 0 );
+
+	} );
+
+}
+
+test( 'an unexpected script error is reported once, not as a blank page', async ( { page } ) => {
+
+	await page.goto( '' );
+	await page.evaluate( () => setTimeout( () => { throw new Error( 'boom' ); }, 0 ) );
+	await expect( page.locator( '.toast.error' ) ).toContainText( /Something went wrong/ );
+
+} );

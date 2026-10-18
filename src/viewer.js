@@ -121,6 +121,16 @@ export class Viewer extends EventTarget {
 		this.container.appendChild( renderer.domElement );
 		this.renderer = renderer;
 
+		// A lost GPU context (driver reset, too many tabs) blanks the canvas; three.js restores it
+		// when the browser does, so just tell the UI and redraw.
+		renderer.domElement.addEventListener( 'webglcontextlost', ( e ) => {
+
+			e.preventDefault();
+			this._emit( 'contextlost' );
+
+		} );
+		renderer.domElement.addEventListener( 'webglcontextrestored', () => this._emit( 'contextrestored' ) );
+
 		const labels = new CSS2DRenderer();
 		labels.domElement.classList.add( 'viewport-labels' );
 		this.container.appendChild( labels.domElement );

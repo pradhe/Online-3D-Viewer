@@ -5,6 +5,7 @@ import './usdFixes.js';
 import { unzipSync } from 'three/addons/libs/fflate.module.js';
 import { extractUsdMetadata } from './usdMetadata.js';
 import { loadUsdStage, canonical, suffixMatch, BUNDLE_ROOT } from './usdStage.js';
+import { ViewerError, assertHasGeometry, checkUsdBytes } from './errors.js';
 
 export const USD_EXTENSIONS = [ 'usd', 'usda', 'usdc', 'usdz' ];
 export const MODEL_EXTENSIONS = [ 'obj', ...USD_EXTENSIONS ];
@@ -345,14 +346,14 @@ export async function loadFromFiles( fileList, { chooseRoot, onProgress } = {} )
 
 		const candidates = usdRootCandidates( assets );
 		main = candidates.length > 1 && chooseRoot ? await chooseRoot( candidates ) : candidates[ 0 ] || main;
-		if ( ! main ) throw new Error( 'No file was chosen.' );
+		if ( ! main ) throw new ViewerError( 'No file was chosen.' );
 
 	}
 
 
 	if ( ! main ) {
 
-		throw new Error( 'No supported model found. Open an .obj, .usd, .usda, .usdc or .usdz file (or a .zip containing one).' );
+		throw new ViewerError( 'No supported model found.', 'Open an .obj, .usd, .usda, .usdc or .usdz file (or a .zip containing one).' );
 
 	}
 
@@ -413,6 +414,7 @@ export async function loadFromFiles( fileList, { chooseRoot, onProgress } = {} )
 		} else {
 
 			const buffer = await main.blob.arrayBuffer();
+			checkUsdBytes( new Uint8Array( buffer ), main.name );
 			const byKey = new Map( assets.all.map( ( a ) => [ canonical( BUNDLE_ROOT + a.path ), a ] ) );
 			const keys = [ ...byKey.keys() ];
 			const stage = await loadUsdStage( {
@@ -446,6 +448,8 @@ export async function loadFromFiles( fileList, { chooseRoot, onProgress } = {} )
 		result.warnings.push( `Missing files: ${ [ ...missing ].join( ', ' ) }. Select them together with the model (or use a .zip).` );
 
 	}
+
+	assertHasGeometry( result.object, { format: ext, missing: result.missing } );
 
 	return {
 		object: result.object,
@@ -512,14 +516,15 @@ export async function loadFromURL( url ) {
 
 	if ( ! MODEL_EXTENSIONS.includes( ext ) ) {
 
-		throw new Error( `Unsupported file type ".${ ext }". Use .obj, .usd, .usda, .usdc or .usdz.` );
+		throw new ViewerError( `Unsupported file type ".${ ext }".`, 'Use .obj, .usd, .usda, .usdc or .usdz.' );
 
 	}
 
 	const response = await fetch( absolute );
-	if ( ! response.ok ) throw new Error( `Download failed (${ response.status } ${ response.statusText })` );
+	if ( ! response.ok ) throw new ViewerError( `Download failed (${ response.status }${ response.statusText ? ' ' + response.statusText : '' }).`, response.status === 404 ? 'Check the address.' : '' );
 
 	const buffer = await response.arrayBuffer();
+	if ( ext !== 'obj' ) checkUsdBytes( new Uint8Array( buffer ), baseName( absolute ) );
 	const resourcePath = THREE.LoaderUtils.extractUrlBase( absolute );
 	const manager = createTrackingManager();
 	let result;
@@ -562,6 +567,8 @@ export async function loadFromURL( url ) {
 		result.warnings.push( `Some files failed to load: ${ [ ...manager.failed ].map( baseName ).join( ', ' ) }` );
 
 	}
+
+	assertHasGeometry( result.object, { format: ext, missing: result.missing } );
 
 	return {
 		object: result.object,
