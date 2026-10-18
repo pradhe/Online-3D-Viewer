@@ -1,2 +1,6 @@
 node_modules
 dist
+
+# Test output
+test-results/
+playwright-report/

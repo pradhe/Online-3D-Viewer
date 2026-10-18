@@ -26,7 +26,11 @@ Live: https://pradhe.github.io/Online-3D-Viewer/ — every push to `main` deploy
 
 ## Testing
 
-`npm run build`, serve `dist/` under `/Online-3D-Viewer/`, drive it with Playwright (Chromium at `/opt/pw-browsers/chromium`, flags `--use-angle=swiftshader --enable-unsafe-swiftshader`). Useful checks: Pixar Kitchen Set (229 layers, 1,788 meshes — matches Pixar USD), NVIDIA fridge (`Assets/ArchVis/Residential/Appliances/Refrigerators/fridge.usd`, 112 textures), city OBJ sample, shapes USDA sample. `pip install usd-core` gives Pixar's `pxr` for authoring test files and verifying edits layers.
+- `npm test` — Vitest unit tests (`tests/unit`): tone-mapping inverse, USD loading/composition/metadata against Pixar-authored fixtures in `tests/fixtures` (binary + text, references, sublayers, broken files).
+- `npm run test:e2e` — Playwright smoke tests (`tests/e2e`): builds, serves `dist`, opens the OBJ/USD samples and files, checks errors and a non-blank canvas. In this sandbox set `PLAYWRIGHT_CHROMIUM=/opt/pw-browsers/chromium-1194/chrome-linux/chrome` (software WebGL flags are already in `playwright.config.js`).
+- CI: `.github/workflows/ci.yml` runs both; `deploy.yml` calls it first, so nothing deploys unless they pass. Dependabot is configured in `.github/dependabot.yml`.
+- Regenerate fixtures with Pixar's `pxr` (`pip install usd-core`) — keep them tiny. A good manual check beyond CI: Pixar Kitchen Set (229 layers, 1,788 meshes), NVIDIA fridge (`Assets/ArchVis/Residential/Appliances/Refrigerators/fridge.usd`, 112 textures).
+- Mutation check when adding a USD fix: disable the patch and confirm a test fails.
 
 ## Status / next steps
 

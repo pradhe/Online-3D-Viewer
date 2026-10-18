@@ -1,0 +1,28 @@
+#usda 1.0
+(
+    defaultPrim = "World"
+    subLayers = [
+        @./look.usda@
+    ]
+    upAxis = "Y"
+)
+
+def Xform "World"
+{
+    def Xform "BoxA" (
+        prepend references = @./box.usdc@
+    )
+    {
+        double3 xformOp:translate = (0, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+
+    def Xform "BoxB" (
+        prepend references = @./box.usdc@
+    )
+    {
+        double3 xformOp:translate = (5, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+}
+
