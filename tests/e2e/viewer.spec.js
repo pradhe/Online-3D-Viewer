@@ -125,44 +125,25 @@ function gridUsda( n ) {
 
 }
 
-test( 'a large scene keeps the page responsive while it loads', async ( { page } ) => {
+test( 'a large scene does not block the page while it loads', async ( { page } ) => {
+
+	// Long tasks (over 50 ms) are main-thread work. Unlike frame timing they are not stretched by
+	// a busy GPU process, so the check also holds on a small CI machine with software WebGL.
+	await page.addInitScript( () => {
+
+		window.__long = [];
+		new PerformanceObserver( ( list ) => list.getEntries().forEach( ( e ) => window.__long.push( { start: e.startTime, duration: e.duration } ) ) )
+			.observe( { entryTypes: [ 'longtask' ] } );
+
+	} );
 
 	await page.goto( '' );
+	await page.waitForTimeout( 8000 ); // start-up compiles shaders; it is not part of loading
 
-	// Software WebGL spends seconds compiling shaders at start-up; wait until frames are quick.
-	await page.evaluate( () => new Promise( ( resolve ) => {
-
-		let last = performance.now();
-		let fast = 0;
-		const tick = () => {
-
-			const now = performance.now();
-			fast = now - last < 100 ? fast + 1 : 0;
-			last = now;
-			if ( fast >= 10 ) resolve();
-			else requestAnimationFrame( tick );
-
-		};
-		requestAnimationFrame( tick );
-
-	} ) );
-
-	// Measure the longest gap between animation frames until the model appears.
 	await page.evaluate( () => {
 
-		window.__gaps = [];
-		let last = performance.now();
-		const tick = () => {
-
-			// The first render of a big model is slow in software WebGL; only loading is under test.
-			if ( window.viewer.model ) return;
-			const now = performance.now();
-			window.__gaps.push( now - last );
-			last = now;
-			requestAnimationFrame( tick );
-
-		};
-		requestAnimationFrame( tick );
+		window.__from = performance.now();
+		window.viewer.addEventListener( 'modelchange', () => { window.__to = performance.now(); } );
 
 	} );
 
@@ -172,10 +153,14 @@ test( 'a large scene keeps the page responsive while it loads', async ( { page }
 	await page.setInputFiles( '#file-input', big );
 	await expect.poll( () => meshCount( page ), { timeout: 110_000 } ).toBe( 1 );
 
-	const gaps = await page.evaluate( () => window.__gaps );
-	// Before the worker, parsing and composing froze the page for the whole load.
-	expect( gaps.length ).toBeGreaterThan( 5 );
-	expect( Math.max( ...gaps ) ).toBeLessThan( 1000 );
+	const during = await page.evaluate( () => window.__long
+		.filter( ( t ) => t.start + t.duration > window.__from && t.start < window.__to )
+		.map( ( t ) => Math.round( t.duration ) ) );
+
+	// Parsing and composing about 700,000 triangles on the page thread adds up to over a second
+	// seconds in total; with the worker only unpacking the result is left.
+	const blocked = during.reduce( ( a, b ) => a + b, 0 );
+	expect( blocked, `long tasks while loading (ms): ${ during }` ).toBeLessThan( 700 );
 
 } );
 

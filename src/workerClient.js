@@ -92,16 +92,28 @@ export async function loadUsdScene( spec, { onProgress, signal } = {} ) {
 
 	const options = { onProgress, signal };
 
-	const [ scene, meta ] = await Promise.all( [
-		run( 'scene', spec, options ),
-		// Metadata is optional: a failure here must not fail the model.
-		run( 'meta', spec, { signal } ).catch( ( e ) => {
+	// Metadata is optional: a failure here must not fail the model.
+	const readMeta = () => run( 'meta', spec, { signal } ).catch( ( e ) => {
 
-			if ( e?.name === 'AbortError' ) throw e;
-			return { meta: null };
+		if ( e?.name === 'AbortError' ) throw e;
+		return { meta: null };
 
-		} ),
-	] );
+	} );
+
+	// Two busy workers leave a 2-core machine without a core for the page itself, so on small
+	// machines the metadata is read after the scene instead of beside it.
+	let scene, meta;
+
+	if ( ( navigator.hardwareConcurrency || 2 ) >= 4 ) {
+
+		[ scene, meta ] = await Promise.all( [ run( 'scene', spec, options ), readMeta() ] );
+
+	} else {
+
+		scene = await run( 'scene', spec, options );
+		meta = await readMeta();
+
+	}
 
 	onProgress?.( 'Adding to the viewer…' );
 	await new Promise( ( r ) => setTimeout( r, 0 ) ); // let the message paint before the last blocking step
