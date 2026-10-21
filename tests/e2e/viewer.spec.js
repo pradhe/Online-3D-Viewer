@@ -157,8 +157,8 @@ test( 'a large scene does not block the page while it loads', async ( { page } )
 		.filter( ( t ) => t.start + t.duration > window.__from && t.start < window.__to )
 		.map( ( t ) => Math.round( t.duration ) ) );
 
-	// Parsing and composing about 700,000 triangles on the page thread adds up to over a second
-	// seconds in total; with the worker only unpacking the result is left.
+	// Parsing and composing about 700,000 triangles on the page thread adds up to over a second;
+	// with the worker only unpacking the result is left.
 	const blocked = during.reduce( ( a, b ) => a + b, 0 );
 	expect( blocked, `long tasks while loading (ms): ${ during }` ).toBeLessThan( 700 );
 
