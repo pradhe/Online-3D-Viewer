@@ -457,7 +457,17 @@ const composerProto = USDComposer.prototype;
 let textureSink = null;
 const createTextureFromData = composerProto._createTextureFromData;
 
+// Lets a worker replace image decoding (no DOM there): the factory runs with the composer as `this`.
+let textureFactory = null;
+export function setTextureFactory( factory ) {
+
+	textureFactory = factory;
+
+}
+
 composerProto._createTextureFromData = function ( ...args ) {
+
+	if ( textureFactory ) return textureFactory.apply( this, args );
 
 	const before = this.texturePromises.length;
 	const texture = createTextureFromData.apply( this, args );

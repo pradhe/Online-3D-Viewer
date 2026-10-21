@@ -123,6 +123,7 @@ function toast( message, type = 'info', timeout = 5000 ) {
 function showLoading( text ) {
 
 	$( '#loading-text' ).textContent = text;
+	$( '#loading-cancel' ).hidden = ! activeLoad;
 	$( '#loading' ).hidden = false;
 
 }
@@ -228,7 +229,32 @@ function setSetting( key, value ) {
 
 // ======================================================================= loading
 
+let activeLoad = null;
+
+function cancelLoad() {
+
+	activeLoad?.abort();
+
+}
+
+$( '#loading-cancel' ).addEventListener( 'click', cancelLoad );
+window.addEventListener( 'keydown', ( e ) => {
+
+	if ( e.key === 'Escape' && activeLoad ) cancelLoad();
+
+} );
+
 async function runLoad( label, loader ) {
+
+	const controller = new AbortController();
+	activeLoad = controller;
+	const started = performance.now();
+	const elapsed = setInterval( () => {
+
+		const s = Math.round( ( performance.now() - started ) / 1000 );
+		$( '#loading-elapsed' ).textContent = s >= 3 ? `${ s } s · press Esc or Cancel to stop` : '';
+
+	}, 1000 );
 
 	showLoading( `Loading ${ label }…` );
 	// Let the overlay paint before heavy synchronous parsing starts.
@@ -238,7 +264,8 @@ async function runLoad( label, loader ) {
 
 	try {
 
-		const result = await loader();
+		const result = await loader( controller.signal );
+		if ( controller.signal.aborted ) throw new DOMException( 'Cancelled', 'AbortError' );
 		viewer.upAxis = 'y';
 		$( '#opt-up' ).value = 'y';
 		state.file = { ...result, loadMs: performance.now() - t0 };
@@ -279,6 +306,13 @@ async function runLoad( label, loader ) {
 
 	} catch ( e ) {
 
+		if ( e?.name === 'AbortError' ) {
+
+			toast( 'Loading cancelled.', 'info', 3000 );
+			return false;
+
+		}
+
 		console.error( e );
 		toast( `Could not open ${ label }. ${ formatError( e ) }`, 'error', 12000 );
 		if ( e?.name !== 'ViewerError' ) reportError( e, 'load' );
@@ -286,6 +320,9 @@ async function runLoad( label, loader ) {
 
 	} finally {
 
+		clearInterval( elapsed );
+		$( '#loading-elapsed' ).textContent = '';
+		if ( activeLoad === controller ) activeLoad = null;
 		hideLoading();
 
 	}
@@ -347,13 +384,13 @@ async function openFiles( files ) {
 	if ( ! files.length ) return;
 	const label = files.length === 1 ? files[ 0 ].name : `${ files.length } files`;
 	const options = { chooseRoot, onProgress: ( text ) => showLoading( text ) };
-	if ( await runLoad( label, () => loadFromFiles( files, options ) ) ) setQuery( {} );
+	if ( await runLoad( label, ( signal ) => loadFromFiles( files, { ...options, signal } ) ) ) setQuery( {} );
 
 }
 
 async function openURL( url ) {
 
-	if ( await runLoad( baseName( url ), () => loadFromURL( url ) ) ) setQuery( { model: url } );
+	if ( await runLoad( baseName( url ), ( signal ) => loadFromURL( url, { onProgress: showLoading, signal } ) ) ) setQuery( { model: url } );
 
 }
 
@@ -362,7 +399,7 @@ async function openSample( key ) {
 	const sample = SAMPLES[ key ];
 	if ( ! sample ) return;
 	const url = new URL( sample.url, new URL( import.meta.env.BASE_URL, window.location.href ) ).href;
-	if ( await runLoad( sample.label, () => loadFromURL( url ) ) ) setQuery( { sample: key } );
+	if ( await runLoad( sample.label, ( signal ) => loadFromURL( url, { onProgress: showLoading, signal } ) ) ) setQuery( { sample: key } );
 
 }
 

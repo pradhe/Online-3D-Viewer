@@ -1,0 +1,56 @@
+#usda 1.0
+(
+    defaultPrim = "World"
+    upAxis = "Y"
+)
+
+def Xform "World"
+{
+    def Mesh "Quad" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        int[] faceVertexCounts = [4]
+        int[] faceVertexIndices = [0, 1, 2, 3]
+        rel material:binding = </World/Looks/Mat>
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)]
+        texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+            interpolation = "vertex"
+        )
+    }
+
+    def "Looks"
+    {
+        def Material "Mat"
+        {
+            token outputs:surface.connect = </World/Looks/Mat/Surface.outputs:surface>
+
+            def Shader "Surface"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor.connect = </World/Looks/Mat/tex.outputs:rgb>
+                color3f inputs:emissiveColor = (0.2, 0.1, 0.05)
+                float inputs:metallic = 0.1
+                float inputs:roughness = 0.35
+                token outputs:surface
+            }
+
+            def Shader "st"
+            {
+                uniform token info:id = "UsdPrimvarReader_float2"
+                token inputs:varname = "st"
+                float2 outputs:result
+            }
+
+            def Shader "tex"
+            {
+                uniform token info:id = "UsdUVTexture"
+                asset inputs:file = @./checker.png@
+                float2 inputs:st.connect = </World/Looks/Mat/st.outputs:result>
+                token inputs:wrapS = "clamp"
+                float3 outputs:rgb
+            }
+        }
+    }
+}
+

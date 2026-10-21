@@ -2,114 +2,11 @@ import * as THREE from 'three';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
 import './usdFixes.js';
-import { unzipSync } from 'three/addons/libs/fflate.module.js';
-import { extractUsdMetadata } from './usdMetadata.js';
-import { loadUsdStage, canonical, suffixMatch, BUNDLE_ROOT } from './usdStage.js';
-import { ViewerError, assertHasGeometry, checkUsdBytes } from './errors.js';
+import { USD_EXTENSIONS, MODEL_EXTENSIONS, baseName, extensionOf, filesToAssets } from './assets.js';
+import { ViewerError, assertHasGeometry } from './errors.js';
+import { loadUsdScene } from './workerClient.js';
 
-export const USD_EXTENSIONS = [ 'usd', 'usda', 'usdc', 'usdz' ];
-export const MODEL_EXTENSIONS = [ 'obj', ...USD_EXTENSIONS ];
-export const ACCEPT = [ ...MODEL_EXTENSIONS, 'mtl', 'zip', 'png', 'jpg', 'jpeg', 'webp', 'bmp', 'tga', 'gif' ]
-	.map( ( e ) => '.' + e ).join( ',' );
-
-export function extensionOf( name ) {
-
-	const clean = name.split( /[?#]/ )[ 0 ];
-	const base = baseName( clean );
-	const parts = base.toLowerCase().split( '.' );
-	if ( parts.length < 2 ) return '';
-	const ext = parts.pop();
-	// Browsers sometimes save text models as "scene.usda.txt" or "model.obj.txt".
-	if ( ext === 'txt' && parts.length > 1 && [ 'obj', 'mtl', 'usd', 'usda' ].includes( parts[ parts.length - 1 ] ) ) return parts.pop();
-	return ext;
-
-}
-
-export function baseName( path ) {
-
-	let name = path.split( /[?#]/ )[ 0 ].split( /[\\/]/ ).pop();
-	try {
-
-		name = decodeURIComponent( name );
-
-	} catch {
-
-		// keep the raw name if it is not valid URI encoding
-
-	}
-
-	return name;
-
-}
-
-/**
- * Turns a list of File objects into an asset map keyed by lower-case file name
- * (for OBJ/MTL lookups). `map.all` lists every file with its relative path,
- * since USD packages reuse names like "albedo.png" in different folders.
- * ZIP archives are expanded (USDZ files are kept as-is, they are read by the USD loader).
- */
-export async function filesToAssets( files ) {
-
-	const assets = new Map();
-	assets.all = [];
-
-	const add = ( path, blob, size ) => {
-
-		const name = baseName( path );
-		const entry = { name, path: path.replace( /^\/+/, '' ), blob, size };
-		assets.set( name.toLowerCase(), entry );
-		assets.all.push( entry );
-
-	};
-
-	for ( const file of files ) {
-
-		const ext = extensionOf( file.name );
-		const path = file.relativePath || file.webkitRelativePath || file.name;
-
-		if ( ext === 'zip' ) {
-
-			// Index the archive, then unpack each file only when it is used:
-			// USD packages can be hundreds of MB and a scene rarely needs every file.
-			const zip = new Uint8Array( await file.arrayBuffer() );
-			const listed = [];
-			unzipSync( zip, { filter: ( f ) => {
-
-				listed.push( f );
-				return false;
-
-			} } );
-
-			for ( const f of listed ) {
-
-				if ( f.name.endsWith( '/' ) || f.name.startsWith( '__MACOSX/' ) ) continue;
-				if ( baseName( f.name ).startsWith( '.' ) ) continue;
-				let blob = null;
-				const entry = { name: baseName( f.name ), path: f.name, size: f.originalSize };
-				Object.defineProperty( entry, 'blob', {
-					get() {
-
-						blob ||= new Blob( [ unzipSync( zip, { filter: ( x ) => x.name === f.name } )[ f.name ] ] );
-						return blob;
-
-					},
-				} );
-				assets.set( entry.name.toLowerCase(), entry );
-				assets.all.push( entry );
-
-			}
-
-		} else {
-
-			add( path, file, file.size );
-
-		}
-
-	}
-
-	return assets;
-
-}
+export * from './assets.js';
 
 /**
  * USD packages hold many .usd files (the scene plus the assets it references).
@@ -337,7 +234,7 @@ async function buildOBJ( objText, getMtlText, manager, resourcePath ) {
 }
 
 /** Loads a model from local files (picked or dropped). */
-export async function loadFromFiles( fileList, { chooseRoot, onProgress } = {} ) {
+export async function loadFromFiles( fileList, { chooseRoot, onProgress, signal } = {} ) {
 
 	const assets = await filesToAssets( fileList );
 	let main = findMainAsset( assets );
@@ -413,27 +310,13 @@ export async function loadFromFiles( fileList, { chooseRoot, onProgress } = {} )
 
 		} else {
 
-			const buffer = await main.blob.arrayBuffer();
-			checkUsdBytes( new Uint8Array( buffer ), main.name );
-			const byKey = new Map( assets.all.map( ( a ) => [ canonical( BUNDLE_ROOT + a.path ), a ] ) );
-			const keys = [ ...byKey.keys() ];
-			const stage = await loadUsdStage( {
-				rootKey: canonical( BUNDLE_ROOT + main.path ),
-				rootBytes: new Uint8Array( buffer ),
-				manager,
-				onProgress,
-				fetchFile: async ( key ) => {
+			const loaded = await loadUsdScene( {
+				kind: 'files',
+				files: [ ...fileList ].map( ( file ) => ( { file, path: file.relativePath || file.webkitRelativePath || file.name } ) ),
+				rootPath: main.path,
+			}, { onProgress, signal } );
 
-					const found = byKey.has( key ) ? key : suffixMatch( keys, key );
-					if ( found ) return { key: found, bytes: new Uint8Array( await byKey.get( found ).blob.arrayBuffer() ) };
-					// Not in the folder: NVIDIA scenes often link to NVIDIA's public asset library.
-					return fetchRemote( key, onProgress );
-
-				},
-			} );
-			await manager.idle();
-			stripBrokenTextures( stage.group );
-			result = { object: stage.group, warnings: usdWarnings( stage ), usd: readMetadata( buffer ), layers: stage.layerCount, missing: stage.missing };
+			result = { object: loaded.object, warnings: usdWarnings( loaded ), usd: loaded.usd, layers: loaded.layerCount, missing: loaded.missing };
 
 		}
 
@@ -464,42 +347,6 @@ export async function loadFromFiles( fileList, { chooseRoot, onProgress } = {} )
 
 }
 
-/** Metadata is a bonus: a file that renders must never fail because of it. */
-function readMetadata( buffer ) {
-
-	try {
-
-		return extractUsdMetadata( buffer );
-
-	} catch ( e ) {
-
-		console.warn( 'Could not read USD metadata:', e );
-		return null;
-
-	}
-
-}
-
-// NVIDIA's public Omniverse content (omniverse://<server>/NVIDIA/Assets/...) is mirrored here, with CORS enabled.
-const NVIDIA_CONTENT = 'https://omniverse-content-production.s3-us-west-2.amazonaws.com/';
-let remoteCount = 0;
-
-/** Downloads a linked file that is not in the local bundle: web links and NVIDIA library paths. */
-async function fetchRemote( key, onProgress ) {
-
-	let url = null;
-	if ( /^https?:\/\//i.test( key ) ) url = key;
-	const nvidia = key.match( /^omniverse:\/\/[^/]+\/NVIDIA\/(.+)$/i );
-	if ( nvidia ) url = NVIDIA_CONTENT + nvidia[ 1 ].split( '/' ).map( encodeURIComponent ).join( '/' );
-	if ( ! url ) return null;
-
-	onProgress?.( `Downloading linked assets… ${ ++ remoteCount }` );
-	const res = await fetch( url ).catch( () => null );
-	if ( ! res || ! res.ok ) return null;
-	return { key, bytes: new Uint8Array( await res.arrayBuffer() ) };
-
-}
-
 function usdWarnings( stage ) {
 
 	if ( ! stage.missing.length ) return [];
@@ -509,7 +356,7 @@ function usdWarnings( stage ) {
 }
 
 /** Loads a model from a URL (same-origin or CORS-enabled). */
-export async function loadFromURL( url ) {
+export async function loadFromURL( url, { onProgress, signal } = {} ) {
 
 	const absolute = new URL( url, window.location.href ).href;
 	const ext = extensionOf( absolute );
@@ -520,47 +367,47 @@ export async function loadFromURL( url ) {
 
 	}
 
-	const response = await fetch( absolute );
+	if ( ext !== 'obj' ) {
+
+		const loaded = await loadUsdScene( { kind: 'url', url: absolute }, { onProgress, signal } );
+		assertHasGeometry( loaded.object, { format: ext, missing: loaded.missing } );
+
+		return {
+			object: loaded.object,
+			name: baseName( absolute ),
+			format: ext,
+			size: loaded.size,
+			warnings: usdWarnings( loaded ),
+			usd: loaded.usd || null,
+			layers: loaded.layerCount || 0,
+			missing: loaded.missing || [],
+		};
+
+	}
+
+	const response = await fetch( absolute, { signal } );
 	if ( ! response.ok ) throw new ViewerError( `Download failed (${ response.status }${ response.statusText ? ' ' + response.statusText : '' }).`, response.status === 404 ? 'Check the address.' : '' );
 
 	const buffer = await response.arrayBuffer();
-	if ( ext !== 'obj' ) checkUsdBytes( new Uint8Array( buffer ), baseName( absolute ) );
 	const resourcePath = THREE.LoaderUtils.extractUrlBase( absolute );
 	const manager = createTrackingManager();
-	let result;
 
-	if ( ext === 'obj' ) {
+	const text = new TextDecoder().decode( buffer );
+	const result = await buildOBJ( text, async ( names, warnings ) => {
 
-		const text = new TextDecoder().decode( buffer );
-		result = await buildOBJ( text, async ( names, warnings ) => {
+		const texts = [];
 
-			const texts = [];
+		for ( const name of names ) {
 
-			for ( const name of names ) {
+			const res = await fetch( new URL( name, resourcePath ) ).catch( () => null );
+			if ( res && res.ok ) texts.push( await res.text() );
+			else warnings.push( `Could not load material library ${ name }.` );
 
-				const res = await fetch( new URL( name, resourcePath ) ).catch( () => null );
-				if ( res && res.ok ) texts.push( await res.text() );
-				else warnings.push( `Could not load material library ${ name }.` );
+		}
 
-			}
+		return texts;
 
-			return texts;
-
-		}, manager, resourcePath );
-
-	} else {
-
-		const stage = await loadUsdStage( {
-			rootKey: canonical( absolute ),
-			rootBytes: new Uint8Array( buffer ),
-			manager,
-			fetchFile: ( key ) => fetchRemote( key ),
-		} );
-		await manager.idle();
-		stripBrokenTextures( stage.group );
-		result = { object: stage.group, warnings: usdWarnings( stage ), usd: readMetadata( buffer ), layers: stage.layerCount, missing: stage.missing };
-
-	}
+	}, manager, resourcePath );
 
 	if ( manager.failed.size ) {
 
@@ -568,7 +415,7 @@ export async function loadFromURL( url ) {
 
 	}
 
-	assertHasGeometry( result.object, { format: ext, missing: result.missing } );
+	assertHasGeometry( result.object, { format: ext, missing: [] } );
 
 	return {
 		object: result.object,
@@ -576,9 +423,9 @@ export async function loadFromURL( url ) {
 		format: ext,
 		size: buffer.byteLength,
 		warnings: result.warnings,
-		usd: result.usd || null,
-		layers: result.layers || 0,
-		missing: result.missing || [],
+		usd: null,
+		layers: 0,
+		missing: [],
 	};
 
 }

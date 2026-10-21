@@ -10,6 +10,7 @@ Live: https://pradhe.github.io/Online-3D-Viewer/ — every push to `main` deploy
 - `src/main.js` — UI wiring: loading, menus, scene tree, Selection panel, Display settings (saved in localStorage under `mycity-viewer:settings:v2`), keyboard shortcuts.
 - `src/viewer.js` — `Viewer` class: renderer, cameras, controls, selection/outline, measure, render modes, GTAO, shadows, lighting presets, tone mapping. Renders **on demand**: call `viewer.invalidate()` after anything that changes the image (viewer `_emit()` and global input events already do).
 - `src/loaders.js` — OBJ/MTL (Phong converted to MeshStandardMaterial, mesh pivots recentred), files/folders/zip (zip entries unpacked lazily), USD entry points, `fetchRemote` (web URLs and `omniverse://…/NVIDIA/…` → NVIDIA's public S3 mirror, CORS-enabled).
+- `src/workerClient.js` / `src/usd.worker.js` / `src/usdJob.js` / `src/sceneTransfer.js` — USD loading runs in a Web Worker: the job reads files, parses/merges layers, composes the scene (textures are stubbed, then decoded with `createImageBitmap`), and `packScene` splits the scene into three.js JSON + transferable typed arrays + exact float colours + texture slots; `unpackScene` rebuilds it on the main thread. One worker per job (terminate = Cancel); a second worker reads metadata in parallel; falls back to the same code inline if workers are unavailable. OBJ still loads on the main thread. `src/assets.js` holds the file/zip helpers shared by both.
 - `src/usdStage.js` — multi-file USD: gathers referenced layers/payloads/sublayers/textures, merges sublayers, resolves paths as URLs under `file:///bundle/`, caches repeated references, builds PointInstancers, converts USD colours to linear.
 - `src/usdFixes.js` — prototype patches for three.js' USD parsers/composer (binary references, payloads, sublayers, dictionaries, inline double vectors, string/uchar arrays; all reference forms in text files; MDL OmniPBR/OmniSurface/OmniGlass materials).
 - `src/usdMetadata.js` — reads stage/prim metadata, attributes, relationships for the Selection panel (root layer only).
@@ -17,6 +18,9 @@ Live: https://pradhe.github.io/Online-3D-Viewer/ — every push to `main` deploy
 - `src/exporters.js` — GLB / OBJ / USDZ export. `src/toneMapping.js` — CPU copies of tone curves (keeps the background colour exact). `src/environments.js` — Studio / Soft / Outdoor IBL presets.
 
 ## Decisions and pitfalls (verified)
+
+- Anything added to the USD pipeline must run without the DOM (it executes in a worker) and its output must survive `packScene`: new material/texture properties are carried by three's JSON, colours by the float table, textures by slots. `tests/unit/transfer.test.js` compares the rebuilt scene with the main-thread one — extend it when adding scene features.
+- Playwright `setInputFiles` with an in-memory buffer blocks the page thread; give big test files as paths.
 
 - Errors: `src/errors.js` — throw `ViewerError(message, hint)` for anything the user can act on; `checkUsdBytes` rejects empty/non-USD files early and `assertHasGeometry` fails a load that drew nothing (never open an empty scene as a success). `describeError` maps raw errors (truncated files, memory, network). Global `error`/`unhandledrejection` and WebGL context loss are handled in `main.js`.
 - Crash reporting (`src/reporting.js`) is opt-in and off unless built with `VITE_ERROR_ENDPOINT`; it sends scrubbed error text only (no file names/URLs/model data), max 5 per session.

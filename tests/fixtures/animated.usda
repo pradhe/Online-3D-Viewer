@@ -1,0 +1,44 @@
+#usda 1.0
+(
+    defaultPrim = "World"
+    endTimeCode = 10
+    startTimeCode = 0
+    timeCodesPerSecond = 24
+    upAxis = "Y"
+)
+
+def Xform "World"
+{
+    def Xform "Mover"
+    {
+        float3 xformOp:rotateXYZ.timeSamples = {
+            0: (0, 0, 0),
+            10: (0, 90, 0),
+        }
+        double3 xformOp:translate.timeSamples = {
+            0: (0, 0, 0),
+            10: (0, 4, 0),
+        }
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ"]
+
+        def Sphere "Ball"
+        {
+            double radius = 0.5
+        }
+    }
+
+    def PointInstancer "Instancer"
+    {
+        point3f[] positions = [(0, 0, 0), (3, 0, 0), (6, 0, 0)]
+        int[] protoIndices = [0, 0, 0]
+        rel prototypes = </World/Instancer/Prototypes/Cube>
+
+        def Xform "Prototypes"
+        {
+            def Cube "Cube"
+            {
+            }
+        }
+    }
+}
+
