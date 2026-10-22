@@ -352,3 +352,21 @@ test( 'a glTF can be exported again as GLB with its texture', async ( { page } )
 	expect( json.animations?.length ?? 0 ).toBeGreaterThanOrEqual( 0 );
 
 } );
+
+test( 'a failed start is explained on screen instead of leaving a dead toolbar', async ( { page } ) => {
+
+	await page.route( '**/assets/index-*.js', ( route ) => route.abort() ); // the app script never arrives
+	await page.goto( '' );
+	await expect( page.locator( '#boot-error' ) ).toContainText( /could not start/, { timeout: 15_000 } );
+	await expect( page.locator( '#boot-error' ) ).toContainText( /failed to load/ );
+
+} );
+
+test( 'a normal start shows no start-up error', async ( { page } ) => {
+
+	await page.goto( '' );
+	await page.waitForTimeout( 12_000 ); // past the 10 s "did not finish starting" check
+	await expect( page.locator( '#boot-error' ) ).toHaveCount( 0 );
+	expect( await page.evaluate( () => window.__viewerReady ) ).toBe( true );
+
+} );

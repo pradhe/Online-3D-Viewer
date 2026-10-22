@@ -1396,3 +1396,6 @@ if ( reportingAvailable ) {
 	box.addEventListener( 'change', () => setReportingEnabled( box.checked ) );
 
 }
+
+// Everything is wired up: tells the start-up check (public/boot-check.js) that there is nothing to report.
+window.__viewerReady = true;
