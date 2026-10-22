@@ -127,43 +127,29 @@ function gridUsda( n ) {
 
 test( 'a large scene does not block the page while it loads', async ( { page } ) => {
 
-	// Long tasks (over 50 ms) are main-thread work. Unlike frame timing they are not stretched by
-	// a busy GPU process, so the check also holds on a small CI machine with software WebGL.
-	await page.addInitScript( () => {
-
-		window.__long = [];
-		new PerformanceObserver( ( list ) => list.getEntries().forEach( ( e ) => window.__long.push( { start: e.startTime, duration: e.duration } ) ) )
-			.observe( { entryTypes: [ 'longtask' ] } );
-
-	} );
-
 	await page.goto( '' );
 	await page.waitForTimeout( 8000 ); // start-up compiles shaders; it is not part of loading
 
-	await page.evaluate( () => {
+	// The CPU time the page's main thread spends. Unlike frame or task timing it does not grow when
+	// the machine is busy (a small CI runner), so the verdict is the same everywhere: parsing and
+	// composing about 700,000 triangles on the page thread costs several seconds of it (about 4.5 s
+	// where this was written), while with the worker only unpacking the result is left (about 0.2 s).
+	const cdp = await page.context().newCDPSession( page );
+	await cdp.send( 'Performance.enable' );
+	const threadTime = async () => ( await cdp.send( 'Performance.getMetrics' ) ).metrics.find( ( m ) => m.name === 'ThreadTime' ).value;
 
-		window.__from = performance.now();
-		window.viewer.addEventListener( 'modelchange', () => { window.__to = performance.now(); } );
-
-	} );
+	await page.evaluate( () => window.viewer.addEventListener( 'modelchange', () => { window.__loaded = true; } ) );
 
 	// From disk, not as an in-memory payload: Playwright injects payloads on the page's own thread.
 	const big = join( mkdtempSync( join( tmpdir(), 'viewer-' ) ), 'grid.usda' );
 	writeFileSync( big, gridUsda( 450 ) );
+
+	const before = await threadTime();
 	await page.setInputFiles( '#file-input', big );
-	await expect.poll( () => meshCount( page ), { timeout: 110_000 } ).toBe( 1 );
+	await page.waitForFunction( () => window.__loaded, null, { timeout: 110_000 } );
+	const busyMs = ( await threadTime() - before ) * 1000;
 
-	const during = await page.evaluate( () => window.__long
-		.filter( ( t ) => t.start + t.duration > window.__from && t.start < window.__to )
-		.map( ( t ) => Math.round( t.duration ) ) );
-
-	// Parsing and composing about 700,000 triangles on the page thread keeps it busy for a large
-	// share of the load (over a tenth on the machine this was written on); with the worker only
-	// unpacking the result is left (about three percent). A share, not milliseconds, so a slow CI
-	// machine does not change the verdict.
-	const blocked = during.reduce( ( a, b ) => a + b, 0 );
-	const loadMs = await page.evaluate( () => window.__to - window.__from );
-	expect( blocked / loadMs, `long tasks while loading (ms): ${ during } of ${ Math.round( loadMs ) }` ).toBeLessThan( 0.08 );
+	expect( busyMs, `main-thread CPU time while loading: ${ Math.round( busyMs ) } ms` ).toBeLessThan( 1500 );
 
 } );
 
