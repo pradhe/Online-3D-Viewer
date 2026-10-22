@@ -218,7 +218,22 @@ test( 'a huge texture is reduced and the user is told', async ( { page } ) => {
 	} );
 	expect( size ).toBeGreaterThan( 0 );
 	expect( size ).toBeLessThanOrEqual( 4096 ); // the source is 5000 px
-	await expect( page.locator( '.toast' ).filter( { hasText: /reduced to save memory/ } ) ).toBeVisible( { timeout: 20_000 } );
+	const seen = async () => JSON.stringify( {
+		toasts: await page.locator( '.toast' ).allTextContents(),
+		deviceMemory: await page.evaluate( () => navigator.deviceMemory ),
+		maxTextureSize: await page.evaluate( () => window.viewer.renderer.capabilities.maxTextureSize ),
+		info: await page.evaluate( () => document.querySelector( '#model-info' )?.textContent ),
+	} );
+
+	try {
+
+		await expect( page.locator( '.toast' ).filter( { hasText: /reduced to save memory/ } ) ).toBeVisible( { timeout: 20_000 } );
+
+	} catch ( error ) {
+
+		throw new Error( `No "reduced" notice. What the page shows: ${ await seen() }\n${ error.message }` );
+
+	}
 
 } );
 
