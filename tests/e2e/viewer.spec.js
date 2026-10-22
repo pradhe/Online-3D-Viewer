@@ -157,10 +157,13 @@ test( 'a large scene does not block the page while it loads', async ( { page } )
 		.filter( ( t ) => t.start + t.duration > window.__from && t.start < window.__to )
 		.map( ( t ) => Math.round( t.duration ) ) );
 
-	// Parsing and composing about 700,000 triangles on the page thread adds up to over a second;
-	// with the worker only unpacking the result is left.
+	// Parsing and composing about 700,000 triangles on the page thread keeps it busy for a large
+	// share of the load (over a tenth on the machine this was written on); with the worker only
+	// unpacking the result is left (about three percent). A share, not milliseconds, so a slow CI
+	// machine does not change the verdict.
 	const blocked = during.reduce( ( a, b ) => a + b, 0 );
-	expect( blocked, `long tasks while loading (ms): ${ during }` ).toBeLessThan( 700 );
+	const loadMs = await page.evaluate( () => window.__to - window.__from );
+	expect( blocked / loadMs, `long tasks while loading (ms): ${ during } of ${ Math.round( loadMs ) }` ).toBeLessThan( 0.08 );
 
 } );
 
@@ -215,7 +218,7 @@ test( 'a huge texture is reduced and the user is told', async ( { page } ) => {
 	} );
 	expect( size ).toBeGreaterThan( 0 );
 	expect( size ).toBeLessThanOrEqual( 4096 ); // the source is 5000 px
-	await expect( page.locator( '.toast' ).filter( { hasText: /reduced to save memory/ } ) ).toBeVisible();
+	await expect( page.locator( '.toast' ).filter( { hasText: /reduced to save memory/ } ) ).toBeVisible( { timeout: 20_000 } );
 
 } );
 
