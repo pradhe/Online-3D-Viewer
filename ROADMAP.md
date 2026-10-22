@@ -47,7 +47,7 @@ Goal: the improvements users notice most, and the groundwork that later features
 
 | # | Item | Area | What we do | Why it matters | Effort |
 | --- | --- | --- | --- | --- | --- |
-| 10 | glTF/GLB input | Formats | Add the format through three.js' existing loader, with Draco and meshopt compression | The most common web 3D format; the quickest win for users | S |
+| 10 | glTF/GLB input (done) | Formats | Add the format through three.js' existing loader, with Draco and meshopt compression | The most common web 3D format; the quickest win for users | S |
 | 11 | Validation report | Formats | List what a file contains and what could not be shown or was approximated | Users know when the picture is not the full truth | S |
 | 12 | UI redesign | Interface | Cleaner toolbar, tabbed side panels, refined dark theme, all current features kept | A more professional look | M |
 | 13 | Action layer | AI | Turn every viewer operation (select, isolate, hide, colour, transform, camera, measure, section, export) into a named command with typed parameters | Undo, tests and the AI chat all build on it, and the buttons and chat behave the same | M |

@@ -1,8 +1,9 @@
 import { unzipSync } from 'three/addons/libs/fflate.module.js';
 
 export const USD_EXTENSIONS = [ 'usd', 'usda', 'usdc', 'usdz' ];
-export const MODEL_EXTENSIONS = [ 'obj', ...USD_EXTENSIONS ];
-export const ACCEPT = [ ...MODEL_EXTENSIONS, 'mtl', 'zip', 'png', 'jpg', 'jpeg', 'webp', 'bmp', 'tga', 'gif' ]
+export const GLTF_EXTENSIONS = [ 'glb', 'gltf' ];
+export const MODEL_EXTENSIONS = [ 'obj', ...GLTF_EXTENSIONS, ...USD_EXTENSIONS ];
+export const ACCEPT = [ ...MODEL_EXTENSIONS, 'mtl', 'bin', 'zip', 'png', 'jpg', 'jpeg', 'webp', 'bmp', 'tga', 'gif' ]
 	.map( ( e ) => '.' + e ).join( ',' );
 
 /** "scene.obj.gz" is an OBJ that was compressed for download; it is unpacked on arrival. */
@@ -20,7 +21,7 @@ export function extensionOf( name ) {
 	if ( parts.length < 2 ) return '';
 	const ext = parts.pop();
 	// Browsers sometimes save text models as "scene.usda.txt" or "model.obj.txt".
-	if ( ext === 'txt' && parts.length > 1 && [ 'obj', 'mtl', 'usd', 'usda' ].includes( parts[ parts.length - 1 ] ) ) return parts.pop();
+	if ( ext === 'txt' && parts.length > 1 && [ 'obj', 'mtl', 'usd', 'usda', 'gltf' ].includes( parts[ parts.length - 1 ] ) ) return parts.pop();
 	return ext;
 
 }

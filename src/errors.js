@@ -35,6 +35,19 @@ export function checkUsdBytes( bytes, name = 'This file' ) {
 
 }
 
+/** Rejects empty files and files that are plainly not glTF (binary container or JSON). */
+export function checkGltfBytes( bytes, name = 'This file', ext = 'glb' ) {
+
+	if ( ! bytes.length ) throw new ViewerError( `${ name } is empty.`, 'Check that the download or copy finished, then open it again.' );
+	if ( ascii( bytes, 0, 4 ) === 'glTF' ) return; // binary container
+
+	const head = new TextDecoder().decode( bytes.slice( 0, 64 ) ).replace( /^\uFEFF/, '' ).trimStart();
+	if ( ext === 'gltf' && head.startsWith( '{' ) ) return;
+
+	throw new ViewerError( `${ name } is not a valid ${ ext === 'gltf' ? 'glTF' : 'GLB' } file.`, ext === 'gltf' ? 'A .gltf file is JSON text starting with "{".' : 'A .glb file starts with "glTF". It may be another format, or it may have been damaged.' );
+
+}
+
 /** Counts what can actually be drawn. */
 export function countGeometry( object ) {
 
@@ -92,6 +105,8 @@ export function describeError( error ) {
 		return { message: 'The file looks damaged or incomplete.', hint: 'It ends unexpectedly. Download or export it again, then retry.' };
 
 	}
+
+	if ( /ktx2/i.test( text ) ) return { message: 'This model uses KTX2 compressed textures, which are not supported yet.', hint: 'Export it again with PNG or JPEG textures.' };
 
 	if ( /failed to fetch|networkerror|load failed|network request failed/i.test( text ) ) {
 

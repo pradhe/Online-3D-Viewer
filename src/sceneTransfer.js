@@ -18,6 +18,23 @@ function materialsOf( object ) {
 
 function attributeData( attribute ) {
 
+	// glTF files often interleave position, normal and uv in one buffer; an interleaved attribute's
+	// `array` is the whole shared buffer, so copy out just this attribute's values.
+	if ( attribute.isInterleavedBufferAttribute ) {
+
+		const { data, offset, itemSize, count } = attribute;
+		const array = new data.array.constructor( count * itemSize );
+
+		for ( let i = 0; i < count; i ++ ) {
+
+			for ( let k = 0; k < itemSize; k ++ ) array[ i * itemSize + k ] = data.array[ i * data.stride + offset + k ];
+
+		}
+
+		return { array, itemSize, normalized: attribute.normalized };
+
+	}
+
 	return { array: attribute.array, itemSize: attribute.itemSize, normalized: attribute.normalized };
 
 }
@@ -40,9 +57,12 @@ function extractGeometry( geometry ) {
 
 }
 
-function textureProps( texture ) {
+function textureProps( texture, flipY ) {
 
 	return {
+		flipY,
+		magFilter: texture.magFilter,
+		minFilter: texture.minFilter,
 		wrapS: texture.wrapS,
 		wrapT: texture.wrapT,
 		colorSpace: texture.colorSpace,
@@ -58,7 +78,7 @@ function textureProps( texture ) {
 
 /**
  * @returns {{ scene: object, geometries: object, instanced: object, colors: object,
- *   textures: object[], textureSlots: object[], images: Map<number, Uint8Array|string> }}
+ *   textures: object[], textureSlots: object[], images: Map<number, Uint8Array|string|ImageBitmap|HTMLImageElement> }}
  */
 export function packScene( root ) {
 
@@ -86,8 +106,20 @@ export function packScene( root ) {
 
 		if ( textureIds.has( texture ) ) return textureIds.get( texture );
 
-		const data = texture.userData?.pendingImage;
-		if ( ! data ) return - 1; // not one of ours: leave it out
+		// Either encoded bytes waiting to be decoded (USD), or an image a loader already produced
+		// (glTF: an ImageBitmap in a worker, an <img> on the main thread). A bitmap decoded for
+		// USD is flipped already; a loader's image keeps the texture's own flipY.
+		let data = texture.userData?.pendingImage;
+		let flipY = false;
+
+		if ( ! data && texture.image && ( typeof texture.image.close === 'function' || texture.image.nodeName ) ) {
+
+			data = texture.image;
+			flipY = texture.flipY;
+
+		}
+
+		if ( ! data ) return - 1; // data textures and the like are left out
 
 		if ( ! imageIds.has( data ) ) {
 
@@ -96,7 +128,7 @@ export function packScene( root ) {
 
 		}
 
-		textures.push( { image: imageIds.get( data ), ...textureProps( texture ) } );
+		textures.push( { image: imageIds.get( data ), ...textureProps( texture, flipY ) } );
 		textureIds.set( texture, textures.length - 1 );
 		return textures.length - 1;
 
@@ -238,7 +270,9 @@ export function unpackScene( packed, bitmaps = new Map() ) {
 			result.offset.fromArray( d.offset );
 			result.center.fromArray( d.center );
 			result.userData = { ...d.userData };
-			result.flipY = false; // the bitmap was decoded already flipped
+			result.flipY = d.flipY;
+			result.magFilter = d.magFilter;
+			result.minFilter = d.minFilter;
 			result.needsUpdate = true;
 
 		}

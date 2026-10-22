@@ -50,9 +50,14 @@ export function measureScene( root ) {
 	const textures = new Set();
 	const out = { triangles: 0, vertices: 0, geometryBytes: 0, textureBytes: 0, textures: [], meshes: 0 };
 
+	const buffers = new Set(); // an interleaved buffer is shared by several attributes
+
 	const addAttribute = ( a ) => {
 
-		if ( a?.array ) out.geometryBytes += a.array.byteLength;
+		const array = a?.isInterleavedBufferAttribute ? a.data.array : a?.array;
+		if ( ! array || buffers.has( array ) ) return;
+		buffers.add( array );
+		out.geometryBytes += array.byteLength;
 
 	};
 

@@ -9,6 +9,9 @@ import { loadUsdScene } from './workerClient.js';
 
 export * from './assets.js';
 
+// Where the Draco decoder files are served (copied there by the build).
+const DRACO_PATH = new URL( 'draco/', new URL( import.meta.env.BASE_URL, window.location.href ) ).href;
+
 /**
  * USD packages hold many .usd files (the scene plus the assets it references).
  * The scene is normally the one nearest the top of the folder.
@@ -26,7 +29,7 @@ export function usdRootCandidates( assets ) {
 /** Picks the model file to open from an asset map. USD is preferred over OBJ. */
 export function findMainAsset( assets ) {
 
-	const rank = { usdz: 0, usd: 1, usda: 1, usdc: 1, obj: 2 };
+	const rank = { usdz: 0, usd: 1, usda: 1, usdc: 1, glb: 2, gltf: 2, obj: 3 };
 	let best = null;
 
 	for ( const asset of assets.values() ) {
@@ -251,7 +254,7 @@ export async function loadFromFiles( fileList, { chooseRoot, onProgress, signal,
 
 	if ( ! main ) {
 
-		throw new ViewerError( 'No supported model found.', 'Open an .obj, .usd, .usda, .usdc or .usdz file (or a .zip containing one).' );
+		throw new ViewerError( 'No supported model found.', 'Open a .glb, .gltf, .obj, .usd, .usda, .usdc or .usdz file (or a .zip containing one).' );
 
 	}
 
@@ -319,9 +322,10 @@ export async function loadFromFiles( fileList, { chooseRoot, onProgress, signal,
 				files: [ ...fileList ].map( ( file ) => ( { file, path: file.relativePath || file.webkitRelativePath || file.name } ) ),
 				rootPath: main.path,
 				limits,
+				dracoPath: DRACO_PATH,
 			}, { onProgress, signal } );
 
-			result = { object: loaded.object, warnings: usdWarnings( loaded ), usd: loaded.usd, layers: loaded.layerCount, missing: loaded.missing, reducedTextures: loaded.reducedTextures };
+			result = { object: loaded.object, warnings: usdWarnings( loaded ), usd: loaded.usd, layers: loaded.layerCount, missing: loaded.missing, reducedTextures: loaded.reducedTextures, info: loaded.info };
 
 		}
 
@@ -349,6 +353,7 @@ export async function loadFromFiles( fileList, { chooseRoot, onProgress, signal,
 		layers: result.layers || 0,
 		missing: result.missing || [],
 		reducedTextures: result.reducedTextures || 0,
+		info: result.info || null,
 	};
 
 }
@@ -411,7 +416,7 @@ export async function loadFromURL( url, { onProgress, signal, limits } = {} ) {
 
 	if ( ! MODEL_EXTENSIONS.includes( ext ) ) {
 
-		throw new ViewerError( `Unsupported file type ".${ ext }".`, 'Use .obj, .usd, .usda, .usdc or .usdz.' );
+		throw new ViewerError( `Unsupported file type ".${ ext }".`, 'Use .glb, .gltf, .obj, .usd, .usda, .usdc or .usdz.' );
 
 	}
 
@@ -419,7 +424,7 @@ export async function loadFromURL( url, { onProgress, signal, limits } = {} ) {
 
 		if ( isGzipped( absolute ) ) throw new ViewerError( 'Compressed USD (.gz) is not supported.', 'Open the .usd/.usdc file itself, or a .usdz package.' );
 
-		const loaded = await loadUsdScene( { kind: 'url', url: absolute, limits }, { onProgress, signal } );
+		const loaded = await loadUsdScene( { kind: 'url', url: absolute, limits, dracoPath: DRACO_PATH }, { onProgress, signal } );
 		assertHasGeometry( loaded.object, { format: ext, missing: loaded.missing } );
 
 		return {
@@ -432,6 +437,7 @@ export async function loadFromURL( url, { onProgress, signal, limits } = {} ) {
 			layers: loaded.layerCount || 0,
 			missing: loaded.missing || [],
 			reducedTextures: loaded.reducedTextures || 0,
+			info: loaded.info || null,
 		};
 
 	}

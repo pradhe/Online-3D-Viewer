@@ -1,3 +1,4 @@
+import { GLTF_EXTENSIONS, extensionOf } from './assets.js';
 import { ViewerError } from './errors.js';
 import { unpackScene } from './sceneTransfer.js';
 import { runMetaJob, runUsdJob } from './usdJob.js';
@@ -55,6 +56,7 @@ function inWorker( job, spec, { onProgress, signal } ) {
 
 			if ( data.type === 'progress' ) onProgress?.( data.text );
 			else if ( data.type === 'done' ) finish( resolve, data.result );
+			else if ( data.error.name === 'WorkerUnsupported' ) finish( resolve, null );
 			else finish( reject, revive( data.error ) );
 
 		};
@@ -92,8 +94,9 @@ export async function loadUsdScene( spec, { onProgress, signal } = {} ) {
 
 	const options = { onProgress, signal };
 
-	// Metadata is optional: a failure here must not fail the model.
-	const readMeta = () => run( 'meta', spec, { signal } ).catch( ( e ) => {
+	// Metadata is optional: a failure here must not fail the model. Only USD has any.
+	const isUsd = ! GLTF_EXTENSIONS.includes( extensionOf( spec.rootPath || spec.url ) );
+	const readMeta = () => ! isUsd ? Promise.resolve( { meta: null } ) : run( 'meta', spec, { signal } ).catch( ( e ) => {
 
 		if ( e?.name === 'AbortError' ) throw e;
 		return { meta: null };
@@ -126,6 +129,7 @@ export async function loadUsdScene( spec, { onProgress, signal } = {} ) {
 		missing: scene.missing,
 		layerCount: scene.layerCount,
 		reducedTextures: scene.reducedTextures || 0,
+		info: scene.info || null,
 		usd: meta.meta,
 	};
 

@@ -15,6 +15,7 @@ const $$ = ( sel ) => [ ...document.querySelectorAll( sel ) ];
 const SAMPLES = {
 	city: { url: 'samples/city/city.obj.gz', label: 'Low-poly city' },
 	shapes: { url: 'samples/shapes/shapes.usda', label: 'Shapes' },
+	gltf: { url: 'samples/gltf/demo.glb', label: 'Box, triangle, animation' },
 };
 
 const SETTINGS_KEY = 'mycity-viewer:settings:v2';

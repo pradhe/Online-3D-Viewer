@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import './usdFixes.js';
-import { baseName, filesToAssets } from './assets.js';
-import { ViewerError, checkUsdBytes } from './errors.js';
+import { GLTF_EXTENSIONS, baseName, extensionOf, filesToAssets } from './assets.js';
+import { ViewerError, checkGltfBytes, checkUsdBytes } from './errors.js';
+import { buildGltf } from './gltfJob.js';
 import { imageSize } from './imageSize.js';
 import { extractUsdMetadata } from './usdMetadata.js';
 import { packScene, transferListOf } from './sceneTransfer.js';
@@ -75,6 +76,7 @@ async function openSpec( spec, onProgress ) {
 			name: baseName( spec.url ),
 			rootKey: canonical( spec.url ),
 			rootBytes: new Uint8Array( await response.arrayBuffer() ),
+			baseUrl: spec.url.replace( /[^/?#]*([?#].*)?$/, '' ),
 			fetchFile: makeRemoteFetcher( onProgress ),
 		};
 
@@ -94,6 +96,7 @@ async function openSpec( spec, onProgress ) {
 		name: main.name,
 		rootKey: canonical( BUNDLE_ROOT + main.path ),
 		rootBytes: new Uint8Array( await main.blob.arrayBuffer() ),
+		assets,
 		fetchFile: async ( key ) => {
 
 			const found = byKey.has( key ) ? key : suffixMatch( keys, key );
@@ -162,14 +165,31 @@ export async function decodeImage( bytes, maxSize = 0 ) {
 
 }
 
+/** An image a loader already decoded (glTF): kept as a bitmap, scaled down if it is too large. */
+async function bitmapFrom( image, maxSize ) {
+
+	if ( typeof createImageBitmap !== 'function' ) return null;
+	const wide = Math.max( image.width, image.height );
+	const options = maxSize && wide > maxSize ? { resizeWidth: Math.max( 1, Math.round( image.width * maxSize / wide ) ), resizeHeight: Math.max( 1, Math.round( image.height * maxSize / wide ) ), resizeQuality: 'high' } : null;
+	if ( typeof image.close === 'function' && ! options ) return image;
+
+	const bitmap = await createImageBitmap( image, { premultiplyAlpha: 'none', imageOrientation: 'none', ...options } ).catch( () => null );
+	if ( options ) image.close?.();
+	return bitmap;
+
+}
+
 /**
- * Builds the scene for a USD model.
+ * Builds the scene for a model: USD, or glTF/GLB.
  * @returns {Promise<{ result: object, transfer: Transferable[] }>}
  */
 export async function runUsdJob( spec, { onProgress, decode } = {} ) {
 
-	const { name, rootKey, rootBytes, fetchFile } = await openSpec( spec, onProgress );
-	checkUsdBytes( rootBytes, name );
+	const { name, rootKey, rootBytes, fetchFile, assets, baseUrl } = await openSpec( spec, onProgress );
+	const ext = extensionOf( name );
+	const isGltf = GLTF_EXTENSIONS.includes( ext );
+	if ( isGltf ) checkGltfBytes( rootBytes, name, ext );
+	else checkUsdBytes( rootBytes, name );
 
 	const maxTexture = spec.limits?.maxTextureSize || 0;
 	let reducedTextures = 0;
@@ -181,15 +201,28 @@ export async function runUsdJob( spec, { onProgress, decode } = {} ) {
 
 	} );
 	let stage;
-	setTextureFactory( stubTexture );
+	let info = null;
 
-	try {
+	if ( isGltf ) {
 
-		stage = await loadUsdStage( { rootKey, rootBytes, fetchFile, manager: new THREE.LoadingManager(), onProgress } );
+		onProgress?.( 'Reading the model…' );
+		const built = await buildGltf( { rootBytes, ext, assets, baseUrl, dracoPath: spec.dracoPath } );
+		stage = { group: built.object, missing: built.missing, layerCount: 1 };
+		info = built.info;
 
-	} finally {
+	} else {
 
-		setTextureFactory( null );
+		setTextureFactory( stubTexture );
+
+		try {
+
+			stage = await loadUsdStage( { rootKey, rootBytes, fetchFile, manager: new THREE.LoadingManager(), onProgress } );
+
+		} finally {
+
+			setTextureFactory( null );
+
+		}
 
 	}
 
@@ -205,7 +238,21 @@ export async function runUsdJob( spec, { onProgress, decode } = {} ) {
 
 		for ( let next = queue.shift(); next; next = queue.shift() ) {
 
-			const bitmap = await decodeBytes( next[ 1 ] );
+			const source = next[ 1 ];
+			let bitmap;
+
+			if ( source instanceof Uint8Array ) {
+
+				bitmap = await decodeBytes( source );
+
+			} else {
+
+				// Already decoded by the glTF loader.
+				if ( maxTexture && Math.max( source.width, source.height ) > maxTexture ) reducedTextures ++;
+				bitmap = await bitmapFrom( source, maxTexture );
+
+			}
+
 			if ( bitmap ) bitmaps.set( next[ 0 ], bitmap );
 			onProgress?.( `Decoding textures… ${ ++ done } of ${ images.size }` );
 
@@ -214,7 +261,7 @@ export async function runUsdJob( spec, { onProgress, decode } = {} ) {
 	} ) );
 
 	return {
-		result: { packed, bitmaps, missing: stage.missing, layerCount: stage.layerCount, name, size: rootBytes.length, reducedTextures },
+		result: { packed, bitmaps, missing: stage.missing, layerCount: stage.layerCount, name, size: rootBytes.length, reducedTextures, info },
 		transfer: [ ...transferListOf( packed ), ...bitmaps.values() ],
 	};
 

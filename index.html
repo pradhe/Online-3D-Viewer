@@ -4,7 +4,7 @@
 	<meta charset="utf-8" />
 	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 	<title>MyCity 3D Viewer</title>
-	<meta name="description" content="Online 3D viewer for OBJ and USD (USD, USDA, USDC, USDZ) models." />
+	<meta name="description" content="Online 3D viewer for glTF/GLB, OBJ and USD (USD, USDA, USDC, USDZ) models." />
 	<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffb238' stroke-width='2' stroke-linejoin='round'%3E%3Cpath d='M12 3 3 7.5v9L12 21l9-4.5v-9z M3 7.5 12 12l9-4.5M12 12v9'/%3E%3C/svg%3E" />
 	<link rel="stylesheet" href="./src/style.css" />
 </head>
@@ -46,7 +46,7 @@
 				<svg><use href="#i-open"/></svg><span>Open</span>
 			</button>
 			<input type="file" id="file-input" multiple hidden />
-			<button class="icon-btn" id="btn-open-folder" title="Open a folder (USD scenes with linked files, OBJ with textures)" aria-label="Open folder"><svg><use href="#i-group"/></svg></button>
+			<button class="icon-btn" id="btn-open-folder" title="Open a folder (USD scenes or glTF with linked files, OBJ with textures)" aria-label="Open folder"><svg><use href="#i-group"/></svg></button>
 			<input type="file" id="folder-input" webkitdirectory multiple hidden />
 
 			<details class="menu" id="menu-samples">
@@ -54,6 +54,7 @@
 				<div class="menu-list">
 					<button data-sample="city">Low-poly city <small>OBJ + MTL</small></button>
 					<button data-sample="shapes">Shapes <small>USDA</small></button>
+					<button data-sample="gltf">Box, triangle, animation <small>GLB</small></button>
 				</div>
 			</details>
 
@@ -96,7 +97,7 @@
 			<div class="empty-state" id="empty-state">
 				<svg class="empty-icon"><use href="#i-cube"/></svg>
 				<h1>Drop a 3D model here</h1>
-				<p>OBJ (with .mtl and textures) or USD — <code>.usd</code> <code>.usda</code> <code>.usdc</code> <code>.usdz</code>. For scenes made of many files (such as NVIDIA Omniverse assets), open the whole folder or a .zip of it.</p>
+				<p>glTF — <code>.glb</code> <code>.gltf</code>, OBJ (with .mtl and textures) or USD — <code>.usd</code> <code>.usda</code> <code>.usdc</code> <code>.usdz</code>. For scenes made of many files (such as NVIDIA Omniverse assets), open the whole folder or a .zip of it.</p>
 				<div class="empty-actions">
 					<button class="btn primary" data-action="open"><svg><use href="#i-open"/></svg><span>Choose files</span></button>
 					<button class="btn" data-action="open-folder"><svg><use href="#i-group"/></svg><span>Open folder</span></button>
@@ -239,7 +240,7 @@
 	<dialog id="url-dialog">
 		<form method="dialog" id="url-form">
 			<h2>Open from URL</h2>
-			<p class="muted small">Link to an .obj, .usd, .usda, .usdc or .usdz file. The server must allow cross-origin requests (CORS). For OBJ, the .mtl and textures are loaded from the same folder.</p>
+			<p class="muted small">Link to a .glb, .gltf, .obj, .usd, .usda, .usdc or .usdz file. The server must allow cross-origin requests (CORS). For OBJ, the .mtl and textures are loaded from the same folder.</p>
 			<input type="url" id="url-input" placeholder="https://example.com/model.usdz" required />
 			<div class="dialog-actions">
 				<button class="btn" value="cancel" formnovalidate>Cancel</button>

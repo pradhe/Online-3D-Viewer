@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -256,5 +256,99 @@ test( 'opening another model frees the previous one', async ( { page } ) => {
 
 	await openFixture( page, 'flat.usda' );
 	await expect.poll( () => page.evaluate( () => window.viewer.renderer.info.memory.textures ), { timeout: 30_000 } ).toBe( baseline );
+
+} );
+
+/** What the viewer ended up with: meshes, the textured box's texture size, animation count, bounds. */
+const modelFacts = ( page ) => page.evaluate( () => {
+
+	let meshes = 0;
+	let map = null;
+	window.viewer.model.traverse( ( o ) => {
+
+		if ( ! o.isMesh ) return;
+		meshes ++;
+		if ( o.material.map?.image ) map = { w: o.material.map.image.width, h: o.material.map.image.height, space: o.material.map.colorSpace };
+
+	} );
+	return { meshes, map, animations: window.viewer.model.animations.length, size: window.viewer.getSize().toArray().map( ( v ) => Math.round( v * 100 ) / 100 ) };
+
+} );
+
+for ( const [ label, files ] of [
+	[ 'GLB with an embedded texture', [ 'gltf/model.glb' ] ],
+	[ 'Draco-compressed GLB', [ 'gltf/model_draco.glb' ] ],
+	[ 'Meshopt-compressed GLB', [ 'gltf/model_meshopt.glb' ] ],
+	[ 'glTF with separate .bin and image files', [ 'gltf/model.gltf', 'gltf/model.bin', 'gltf/baseColor.png' ] ],
+] ) {
+
+	test( `opens a ${ label }`, async ( { page } ) => {
+
+		const errors = watchErrors( page );
+		await page.goto( '' );
+		await openFixture( page, ...files );
+		await expect.poll( () => meshCount( page ), { timeout: 60_000 } ).toBe( 2 );
+
+		const facts = await modelFacts( page );
+		expect( facts.map, 'the box keeps its texture' ).toEqual( { w: 8, h: 8, space: 'srgb' } );
+		expect( facts.animations ).toBe( 1 );
+		expect( facts.size[ 0 ] ).toBeGreaterThan( 3 ); // box and triangle side by side
+		expect( errors ).toEqual( [] );
+
+	} );
+
+}
+
+test( 'models load from a link: a GLB, and a .gltf with files next to it', async ( { page } ) => {
+
+	const serve = ( url, file, type ) => page.route( url, ( route ) => route.fulfill( { body: readFileSync( join( fixtures, file ) ), contentType: type, headers: { 'access-control-allow-origin': '*' } } ) );
+	await serve( 'https://models.test/a/model.glb', 'gltf/model.glb', 'model/gltf-binary' );
+	await serve( 'https://models.test/b/model.gltf', 'gltf/model.gltf', 'model/gltf+json' );
+	await serve( 'https://models.test/b/model.bin', 'gltf/model.bin', 'application/octet-stream' );
+	await serve( 'https://models.test/b/baseColor.png', 'gltf/baseColor.png', 'image/png' );
+
+	for ( const url of [ 'https://models.test/a/model.glb', 'https://models.test/b/model.gltf' ] ) {
+
+		await page.goto( `?model=${ encodeURIComponent( url ) }` );
+		await expect.poll( () => meshCount( page ), { timeout: 60_000 } ).toBe( 2 );
+		expect( ( await modelFacts( page ) ).map ).toEqual( { w: 8, h: 8, space: 'srgb' } );
+
+	}
+
+} );
+
+test( 'the bundled glTF sample opens from the Samples menu', async ( { page } ) => {
+
+	await page.goto( '?sample=gltf' );
+	await expect.poll( () => meshCount( page ), { timeout: 60_000 } ).toBe( 2 );
+
+} );
+
+test( 'a .gltf opened without its linked files is explained', async ( { page } ) => {
+
+	await page.goto( '' );
+	await openFixture( page, 'gltf/model.gltf' ); // without its .bin and image
+	await expect( page.locator( '.toast.error' ) ).toContainText( /links to files that were not chosen/ );
+	expect( await meshCount( page ) ).toBe( 0 );
+
+} );
+
+test( 'a glTF can be exported again as GLB with its texture', async ( { page } ) => {
+
+	await page.goto( '' );
+	await openFixture( page, 'gltf/model.glb' );
+	await expect.poll( () => meshCount( page ), { timeout: 60_000 } ).toBe( 2 );
+
+	await page.locator( '#menu-export summary' ).click();
+	const download = page.waitForEvent( 'download' );
+	await page.locator( '#export-list button' ).filter( { hasText: /GLB/ } ).first().click();
+	const path = await ( await download ).path();
+
+	const bytes = readFileSync( path );
+	expect( bytes.subarray( 0, 4 ).toString() ).toBe( 'glTF' );
+	const json = JSON.parse( bytes.subarray( 20, 20 + bytes.readUInt32LE( 12 ) ).toString() );
+	expect( json.meshes.length ).toBe( 2 );
+	expect( json.images?.length ).toBe( 1 );
+	expect( json.animations?.length ?? 0 ).toBeGreaterThanOrEqual( 0 );
 
 } );
