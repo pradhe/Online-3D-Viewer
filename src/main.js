@@ -5,7 +5,8 @@ import { loadFromFiles, loadFromURL, baseName } from './loaders.js';
 import { exportModel, EXPORT_FORMATS } from './exporters.js';
 import { attachUsdPaths } from './usdMetadata.js';
 import { Editor } from './editor.js';
-import { formatError, webglAvailable } from './errors.js';
+import { ViewerError, formatError, webglAvailable } from './errors.js';
+import { deviceLimits, disposeObject, fitToBudget, formatMemory } from './memory.js';
 import { reportError, reportingAvailable, reportingEnabled, setReportingEnabled } from './reporting.js';
 
 const $ = ( sel ) => document.querySelector( sel );
@@ -231,6 +232,59 @@ function setSetting( key, value ) {
 
 let activeLoad = null;
 
+// ?memory=<MB> overrides the memory budget (used by the tests to exercise the limits).
+const memoryOverride = Number( new URLSearchParams( window.location.search ).get( 'memory' ) ) || 0;
+const HEAVY_TRIANGLES = 1_500_000;
+let performanceMode = false;
+
+const currentLimits = () => deviceLimits( { maxTextureSize: viewer.renderer.capabilities.maxTextureSize, override: memoryOverride } );
+
+/**
+ * Keeps a freshly loaded model within the device's memory: shrinks oversized textures, refuses
+ * what cannot fit, and returns notes for the user.
+ */
+async function fitModelToDevice( result, limits ) {
+
+	const fit = await fitToBudget( result.object, limits );
+	const mem = fit.after;
+
+	if ( mem.totalBytes > limits.hardLimit ) {
+
+		disposeObject( result.object );
+		throw new ViewerError(
+			`This model needs about ${ formatMemory( mem.totalBytes ) } of memory, more than this device can safely hold (${ formatMemory( limits.hardLimit ) }).`,
+			'Close other tabs, use a computer with more memory, or open a lighter version of the model.'
+		);
+
+	}
+
+	const notes = [];
+	const reduced = fit.capped + fit.halved + ( result.reducedTextures || 0 );
+	if ( reduced ) notes.push( `${ reduced } large texture${ reduced === 1 ? ' was' : 's were' } reduced to save memory (limit ${ limits.maxTextureSize } px${ fit.halved ? ', and some halved to fit this device' : '' }). Colours and shapes are unchanged; fine texture detail is softer.` );
+
+	const heavy = mem.triangles > HEAVY_TRIANGLES || mem.totalBytes > limits.budget;
+
+	if ( heavy ) {
+
+		performanceMode = true;
+		settings = { ...settings, ao: false, shadows: false }; // not saved: the next model gets your settings back
+		applySettings();
+		notes.push( `Heavy model: ${ fmtInt( mem.triangles ) } triangles, about ${ formatMemory( mem.totalBytes ) } in memory. Shadows and ambient occlusion were turned off to keep it smooth; you can turn them back on in Display.` );
+
+	}
+
+	result.memory = {
+		triangles: mem.triangles,
+		geometryBytes: mem.geometryBytes,
+		textureBytes: mem.textureBytes,
+		reduced,
+		heavy,
+		budget: limits.budget,
+	};
+	result.warnings.push( ...notes );
+
+}
+
 function cancelLoad() {
 
 	activeLoad?.abort();
@@ -256,6 +310,15 @@ async function runLoad( label, loader ) {
 
 	}, 1000 );
 
+	if ( performanceMode ) {
+
+		performanceMode = false;
+		settings = loadSettings();
+		applySettings();
+
+	}
+
+	const limits = currentLimits();
 	showLoading( `Loading ${ label }…` );
 	// Let the overlay paint before heavy synchronous parsing starts.
 	await nextFrame();
@@ -264,8 +327,16 @@ async function runLoad( label, loader ) {
 
 	try {
 
-		const result = await loader( controller.signal );
-		if ( controller.signal.aborted ) throw new DOMException( 'Cancelled', 'AbortError' );
+		const result = await loader( controller.signal, limits );
+		if ( controller.signal.aborted ) {
+
+			disposeObject( result.object );
+			throw new DOMException( 'Cancelled', 'AbortError' );
+
+		}
+
+		showLoading( 'Checking memory use…' );
+		await fitModelToDevice( result, limits );
 		viewer.upAxis = 'y';
 		$( '#opt-up' ).value = 'y';
 		state.file = { ...result, loadMs: performance.now() - t0 };
@@ -384,13 +455,13 @@ async function openFiles( files ) {
 	if ( ! files.length ) return;
 	const label = files.length === 1 ? files[ 0 ].name : `${ files.length } files`;
 	const options = { chooseRoot, onProgress: ( text ) => showLoading( text ) };
-	if ( await runLoad( label, ( signal ) => loadFromFiles( files, { ...options, signal } ) ) ) setQuery( {} );
+	if ( await runLoad( label, ( signal, limits ) => loadFromFiles( files, { ...options, signal, limits } ) ) ) setQuery( {} );
 
 }
 
 async function openURL( url ) {
 
-	if ( await runLoad( baseName( url ), ( signal ) => loadFromURL( url, { onProgress: showLoading, signal } ) ) ) setQuery( { model: url } );
+	if ( await runLoad( baseName( url ), ( signal, limits ) => loadFromURL( url, { onProgress: showLoading, signal, limits } ) ) ) setQuery( { model: url } );
 
 }
 
@@ -399,7 +470,7 @@ async function openSample( key ) {
 	const sample = SAMPLES[ key ];
 	if ( ! sample ) return;
 	const url = new URL( sample.url, new URL( import.meta.env.BASE_URL, window.location.href ) ).href;
-	if ( await runLoad( sample.label, ( signal ) => loadFromURL( url, { onProgress: showLoading, signal } ) ) ) setQuery( { sample: key } );
+	if ( await runLoad( sample.label, ( signal, limits ) => loadFromURL( url, { onProgress: showLoading, signal, limits } ) ) ) setQuery( { sample: key } );
 
 }
 
@@ -1042,6 +1113,8 @@ function renderModelInfo() {
 		<dt>Triangles</dt><dd>${ fmtInt( s.triangles ) }</dd>
 		<dt>Materials</dt><dd>${ fmtInt( s.materials.size ) }</dd>
 		<dt>Textures</dt><dd>${ fmtInt( s.textures.size ) }</dd>
+		${ f.memory ? `<dt>Memory (est.)</dt><dd>${ formatMemory( f.memory.geometryBytes + f.memory.textureBytes ) } <span class="muted">(geometry ${ formatMemory( f.memory.geometryBytes ) }, textures ${ formatMemory( f.memory.textureBytes ) })</span></dd>` : '' }
+		${ f.memory?.reduced ? `<dt>Textures reduced</dt><dd>${ f.memory.reduced }</dd>` : '' }
 		<dt>Dimensions</dt><dd>${ formatLength( size.x ) } × ${ formatLength( size.y ) } × ${ formatLength( size.z ) }</dd>
 		${ viewer.model.animations?.length ? `<dt>Animations</dt><dd>${ viewer.model.animations.length }</dd>` : '' }
 		<dt>Load time</dt><dd>${ ( f.loadMs / 1000 ).toFixed( 2 ) } s</dd>

@@ -102,3 +102,7 @@ Online-3D-Viewer/
 ## Credits
 
 The low-poly city sample is the *Lowpoly City Free Pack* by [Anton Moek](https://www.antonmoek.com).
+
+## Memory limits
+
+The viewer estimates how much memory a model needs (geometry plus decoded textures). Textures larger than 4096 px (2048 px on phones and small devices) are scaled down while they decode, and the largest are halved further if the scene still exceeds the device's comfortable budget. Models above that budget open with shadows and ambient occlusion turned off for that model; models far above it (several times the budget) are refused with an explanation instead of crashing the tab. Opening another model frees the previous one. To test the limits, add `?memory=<MB>` to the address to override the budget.

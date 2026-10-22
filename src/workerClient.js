@@ -125,6 +125,7 @@ export async function loadUsdScene( spec, { onProgress, signal } = {} ) {
 		size: scene.size,
 		missing: scene.missing,
 		layerCount: scene.layerCount,
+		reducedTextures: scene.reducedTextures || 0,
 		usd: meta.meta,
 	};
 

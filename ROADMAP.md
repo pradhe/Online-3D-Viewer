@@ -34,7 +34,7 @@ Goal: nothing freezes or regresses unnoticed, and the basics for releasing are s
 | 3 | Dependency safety (done) | Stability | Pin versions, enable Dependabot, run the tests on every upgrade | The USD code leans on three.js internals that change between versions | S |
 | 4 | Error handling and reporting (done) | Stability | Clear messages for corrupt or unsupported files; optional crash reporting such as Sentry | Failures are noticed before users complain | S |
 | 5 | Loading in Web Workers (done for USD) | Stability | Parse USD and OBJ off the main thread, show real progress and a Cancel button | The 29 MB NVIDIA fridge froze the page for about 45 seconds | M |
-| 6 | Memory and size limits | Stability | Memory budget, texture downscaling for huge images, a heavy-model warning, proper disposal of the previous model | A 2.4 million-vertex scene can crash a phone | M |
+| 6 | Memory and size limits (done) | Stability | Memory budget, texture downscaling for huge images, a heavy-model warning, proper disposal of the previous model | A 2.4 million-vertex scene can crash a phone | M |
 | 7 | Account and repo security | Release | Two-factor authentication with recovery codes, Dependabot, a ruleset protecting `main`, a local backup clone | Protects against losing the account or code | S |
 | 8 | Hosting for a private repo | Release | Netlify or Cloudflare Pages (config already in the repo), or GitHub's private Pages on a paid plan | Keeps the site online while the code stays private | S |
 | 9 | Licences | Release | Add a LICENSE for the code, credit three.js (MIT), and check the terms of the bundled city sample and any NVIDIA or Pixar sample files | Avoids legal problems when public | S |

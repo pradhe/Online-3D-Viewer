@@ -187,3 +187,74 @@ test( 'Cancel stops a load and the viewer keeps working', async ( { page } ) => 
 	await expect.poll( () => meshCount( page ), { timeout: 60_000 } ).toBe( 2 );
 
 } );
+
+const openFixture = ( page, ...names ) => page.setInputFiles( '#file-input', names.map( ( n ) => join( fixtures, n ) ) );
+
+const textureCount = ( page ) => page.evaluate( () => window.viewer.renderer.info.memory.textures );
+
+async function openGrid( page, n = 200 ) {
+
+	const file = join( mkdtempSync( join( tmpdir(), 'viewer-' ) ), 'grid.usda' );
+	writeFileSync( file, gridUsda( n ) );
+	await page.setInputFiles( '#file-input', file );
+
+}
+
+test( 'a huge texture is reduced and the user is told', async ( { page } ) => {
+
+	await page.goto( '' );
+	await openFixture( page, 'textured/textured_big.usda', 'textured/big.png' );
+	await expect.poll( () => meshCount( page ), { timeout: 60_000 } ).toBe( 1 );
+
+	const size = await page.evaluate( () => {
+
+		let image;
+		window.viewer.model.traverse( ( o ) => o.isMesh && ( image = o.material.map?.image ) );
+		return image ? Math.max( image.width, image.height ) : 0;
+
+	} );
+	expect( size ).toBeGreaterThan( 0 );
+	expect( size ).toBeLessThanOrEqual( 4096 ); // the source is 5000 px
+	await expect( page.locator( '.toast' ).filter( { hasText: /reduced to save memory/ } ) ).toBeVisible();
+
+} );
+
+test( 'a heavy model switches off shadows and ambient occlusion, and the next model gets them back', async ( { page } ) => {
+
+	await page.goto( '?memory=3' );
+	await openGrid( page );
+	await expect( page.locator( '.toast' ).filter( { hasText: /Heavy model/ } ) ).toBeVisible( { timeout: 60_000 } );
+	await expect( page.locator( '#opt-ao' ) ).not.toBeChecked();
+	await expect( page.locator( '#opt-shadows' ) ).not.toBeChecked();
+
+	await openFixture( page, 'flat.usda' );
+	await expect.poll( () => meshCount( page ), { timeout: 60_000 } ).toBe( 2 );
+	await expect( page.locator( '#opt-ao' ) ).toBeChecked();
+	await expect( page.locator( '#opt-shadows' ) ).toBeChecked();
+
+} );
+
+test( 'a model that cannot fit the device is refused with a clear reason', async ( { page } ) => {
+
+	await page.goto( '?memory=0.2' );
+	await openGrid( page );
+	await expect( page.locator( '.toast.error' ) ).toContainText( /more than this device can safely hold/, { timeout: 60_000 } );
+	expect( await meshCount( page ) ).toBe( 0 );
+
+} );
+
+test( 'opening another model frees the previous one', async ( { page } ) => {
+
+	await page.goto( '' );
+	await openFixture( page, 'flat.usda' );
+	await expect.poll( () => meshCount( page ), { timeout: 60_000 } ).toBe( 2 );
+	await page.waitForTimeout( 1500 );
+	const baseline = await textureCount( page );
+
+	await openFixture( page, 'textured/textured.usda', 'textured/checker.png' );
+	await expect.poll( () => page.evaluate( () => window.viewer.renderer.info.memory.textures ), { timeout: 30_000 } ).toBeGreaterThan( baseline );
+
+	await openFixture( page, 'flat.usda' );
+	await expect.poll( () => page.evaluate( () => window.viewer.renderer.info.memory.textures ), { timeout: 30_000 } ).toBe( baseline );
+
+} );

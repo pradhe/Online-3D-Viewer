@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import './usdFixes.js';
 import { baseName, filesToAssets } from './assets.js';
 import { ViewerError, checkUsdBytes } from './errors.js';
+import { imageSize } from './imageSize.js';
 import { extractUsdMetadata } from './usdMetadata.js';
 import { packScene, transferListOf } from './sceneTransfer.js';
 import { BUNDLE_ROOT, canonical, loadUsdStage, setTextureFactory, suffixMatch } from './usdStage.js';
@@ -126,11 +127,38 @@ function stubTexture( data, textureAttrs, transformAttrs ) {
 
 }
 
-/** Decodes to a bitmap that is already flipped, which is what a non-flipping texture expects. */
-export function decodeImage( bytes ) {
+/**
+ * Decodes to a bitmap that is already flipped, which is what a non-flipping texture expects.
+ * Images larger than `maxSize` pixels are scaled down while decoding, so a 16k photo never
+ * exists at full size in memory (the size is read from the file header first).
+ */
+export async function decodeImage( bytes, maxSize = 0 ) {
 
-	if ( typeof createImageBitmap !== 'function' ) return Promise.resolve( null );
-	return createImageBitmap( new Blob( [ bytes ] ), { imageOrientation: 'flipY', premultiplyAlpha: 'none' } ).catch( () => null );
+	if ( typeof createImageBitmap !== 'function' ) return null;
+
+	const options = { imageOrientation: 'flipY', premultiplyAlpha: 'none' };
+	const size = maxSize ? imageSize( bytes ) : null;
+
+	if ( size && Math.max( size.width, size.height ) > maxSize ) {
+
+		const scale = maxSize / Math.max( size.width, size.height );
+		Object.assign( options, { resizeWidth: Math.max( 1, Math.round( size.width * scale ) ), resizeHeight: Math.max( 1, Math.round( size.height * scale ) ), resizeQuality: 'high' } );
+
+	}
+
+	const bitmap = await createImageBitmap( new Blob( [ bytes ] ), options ).catch( () => null );
+
+	// Unknown format: the size was only known after decoding, so shrink it now.
+	if ( bitmap && maxSize && ! size && Math.max( bitmap.width, bitmap.height ) > maxSize ) {
+
+		const scale = maxSize / Math.max( bitmap.width, bitmap.height );
+		const smaller = await createImageBitmap( bitmap, { resizeWidth: Math.round( bitmap.width * scale ), resizeHeight: Math.round( bitmap.height * scale ), resizeQuality: 'high' } ).catch( () => null );
+		bitmap.close();
+		return smaller;
+
+	}
+
+	return bitmap;
 
 }
 
@@ -138,11 +166,20 @@ export function decodeImage( bytes ) {
  * Builds the scene for a USD model.
  * @returns {Promise<{ result: object, transfer: Transferable[] }>}
  */
-export async function runUsdJob( spec, { onProgress, decode = decodeImage } = {} ) {
+export async function runUsdJob( spec, { onProgress, decode } = {} ) {
 
 	const { name, rootKey, rootBytes, fetchFile } = await openSpec( spec, onProgress );
 	checkUsdBytes( rootBytes, name );
 
+	const maxTexture = spec.limits?.maxTextureSize || 0;
+	let reducedTextures = 0;
+	const decodeBytes = decode || ( ( bytes ) => {
+
+		const size = maxTexture ? imageSize( bytes ) : null;
+		if ( size && Math.max( size.width, size.height ) > maxTexture ) reducedTextures ++;
+		return decodeImage( bytes, maxTexture );
+
+	} );
 	let stage;
 	setTextureFactory( stubTexture );
 
@@ -168,7 +205,7 @@ export async function runUsdJob( spec, { onProgress, decode = decodeImage } = {}
 
 		for ( let next = queue.shift(); next; next = queue.shift() ) {
 
-			const bitmap = await decode( next[ 1 ] );
+			const bitmap = await decodeBytes( next[ 1 ] );
 			if ( bitmap ) bitmaps.set( next[ 0 ], bitmap );
 			onProgress?.( `Decoding textures… ${ ++ done } of ${ images.size }` );
 
@@ -177,7 +214,7 @@ export async function runUsdJob( spec, { onProgress, decode = decodeImage } = {}
 	} ) );
 
 	return {
-		result: { packed, bitmaps, missing: stage.missing, layerCount: stage.layerCount, name, size: rootBytes.length },
+		result: { packed, bitmaps, missing: stage.missing, layerCount: stage.layerCount, name, size: rootBytes.length, reducedTextures },
 		transfer: [ ...transferListOf( packed ), ...bitmaps.values() ],
 	};
 

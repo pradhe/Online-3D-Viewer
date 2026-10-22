@@ -235,7 +235,7 @@ async function buildOBJ( objText, getMtlText, manager, resourcePath ) {
 }
 
 /** Loads a model from local files (picked or dropped). */
-export async function loadFromFiles( fileList, { chooseRoot, onProgress, signal } = {} ) {
+export async function loadFromFiles( fileList, { chooseRoot, onProgress, signal, limits } = {} ) {
 
 	const assets = await filesToAssets( fileList );
 	let main = findMainAsset( assets );
@@ -254,6 +254,9 @@ export async function loadFromFiles( fileList, { chooseRoot, onProgress, signal 
 		throw new ViewerError( 'No supported model found.', 'Open an .obj, .usd, .usda, .usdc or .usdz file (or a .zip containing one).' );
 
 	}
+
+	// A single file this large cannot even be read into a browser tab.
+	if ( main.size > 1.8 * 1024 ** 3 ) throw new ViewerError( `${ main.name } is larger than 1.8 GB.`, 'Browsers cannot open a single file that large. Split the scene into several files, or use a desktop application.' );
 
 	const urls = new Map();
 	const missing = new Set();
@@ -315,9 +318,10 @@ export async function loadFromFiles( fileList, { chooseRoot, onProgress, signal 
 				kind: 'files',
 				files: [ ...fileList ].map( ( file ) => ( { file, path: file.relativePath || file.webkitRelativePath || file.name } ) ),
 				rootPath: main.path,
+				limits,
 			}, { onProgress, signal } );
 
-			result = { object: loaded.object, warnings: usdWarnings( loaded ), usd: loaded.usd, layers: loaded.layerCount, missing: loaded.missing };
+			result = { object: loaded.object, warnings: usdWarnings( loaded ), usd: loaded.usd, layers: loaded.layerCount, missing: loaded.missing, reducedTextures: loaded.reducedTextures };
 
 		}
 
@@ -344,6 +348,7 @@ export async function loadFromFiles( fileList, { chooseRoot, onProgress, signal 
 		usd: result.usd || null,
 		layers: result.layers || 0,
 		missing: result.missing || [],
+		reducedTextures: result.reducedTextures || 0,
 	};
 
 }
@@ -399,7 +404,7 @@ async function downloadWithProgress( url, { signal, onProgress, label } ) {
 }
 
 /** Loads a model from a URL (same-origin or CORS-enabled). */
-export async function loadFromURL( url, { onProgress, signal } = {} ) {
+export async function loadFromURL( url, { onProgress, signal, limits } = {} ) {
 
 	const absolute = new URL( url, window.location.href ).href;
 	const ext = extensionOf( absolute );
@@ -414,7 +419,7 @@ export async function loadFromURL( url, { onProgress, signal } = {} ) {
 
 		if ( isGzipped( absolute ) ) throw new ViewerError( 'Compressed USD (.gz) is not supported.', 'Open the .usd/.usdc file itself, or a .usdz package.' );
 
-		const loaded = await loadUsdScene( { kind: 'url', url: absolute }, { onProgress, signal } );
+		const loaded = await loadUsdScene( { kind: 'url', url: absolute, limits }, { onProgress, signal } );
 		assertHasGeometry( loaded.object, { format: ext, missing: loaded.missing } );
 
 		return {
@@ -426,6 +431,7 @@ export async function loadFromURL( url, { onProgress, signal } = {} ) {
 			usd: loaded.usd || null,
 			layers: loaded.layerCount || 0,
 			missing: loaded.missing || [],
+			reducedTextures: loaded.reducedTextures || 0,
 		};
 
 	}

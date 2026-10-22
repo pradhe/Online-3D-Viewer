@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { EnvironmentLibrary } from './environments.js';
+import { disposeObject } from './memory.js';
 import { TONE_MAPPINGS, inverseToneMap } from './toneMapping.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -34,24 +35,6 @@ function isVisibleInScene( object ) {
 
 	for ( let o = object; o; o = o.parent ) if ( ! o.visible ) return false;
 	return true;
-
-}
-
-function disposeObject( root ) {
-
-	root.traverse( ( child ) => {
-
-		if ( child.geometry ) child.geometry.dispose();
-		const materials = child.material ? ( Array.isArray( child.material ) ? child.material : [ child.material ] ) : [];
-
-		for ( const m of materials ) {
-
-			for ( const key of TEXTURE_KEYS ) if ( m[ key ] && m[ key ].isTexture ) m[ key ].dispose();
-			m.dispose();
-
-		}
-
-	} );
 
 }
 
