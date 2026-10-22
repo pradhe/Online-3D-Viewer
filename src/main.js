@@ -12,7 +12,7 @@ const $ = ( sel ) => document.querySelector( sel );
 const $$ = ( sel ) => [ ...document.querySelectorAll( sel ) ];
 
 const SAMPLES = {
-	city: { url: 'samples/city/city.obj', label: 'Low-poly city' },
+	city: { url: 'samples/city/city.obj.gz', label: 'Low-poly city' },
 	shapes: { url: 'samples/shapes/shapes.usda', label: 'Shapes' },
 };
 

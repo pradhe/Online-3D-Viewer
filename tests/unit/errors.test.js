@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { ViewerError, assertHasGeometry, checkUsdBytes, countGeometry, describeError, formatError } from '../../src/errors.js';
 import { scrub } from '../../src/reporting.js';
+import { extensionOf, isGzipped } from '../../src/assets.js';
 
 const bytes = ( text ) => new TextEncoder().encode( text );
 
@@ -89,6 +90,20 @@ describe( 'scrub (crash report text)', () => {
 		const out = scrub( 'Failed on My Secret Plan.usdc at https://example.com/a/b.obj and blob:http://x/1234' );
 		expect( out ).not.toMatch( /Secret|example\.com|blob:/ );
 		expect( out ).toContain( '<file>' );
+
+	} );
+
+} );
+
+describe( 'compressed downloads', () => {
+
+	it( 'reads the model type through .gz', () => {
+
+		expect( isGzipped( 'a/city.obj.gz' ) ).toBe( true );
+		expect( isGzipped( 'a/city.obj?x=1' ) ).toBe( false );
+		expect( extensionOf( 'a/city.obj.gz' ) ).toBe( 'obj' );
+		expect( extensionOf( 'a/city.obj.gz?v=2' ) ).toBe( 'obj' );
+		expect( extensionOf( 'scene.usda.txt' ) ).toBe( 'usda' );
 
 	} );
 

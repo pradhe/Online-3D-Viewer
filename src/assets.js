@@ -5,9 +5,16 @@ export const MODEL_EXTENSIONS = [ 'obj', ...USD_EXTENSIONS ];
 export const ACCEPT = [ ...MODEL_EXTENSIONS, 'mtl', 'zip', 'png', 'jpg', 'jpeg', 'webp', 'bmp', 'tga', 'gif' ]
 	.map( ( e ) => '.' + e ).join( ',' );
 
+/** "scene.obj.gz" is an OBJ that was compressed for download; it is unpacked on arrival. */
+export function isGzipped( name ) {
+
+	return /\.gz$/i.test( name.split( /[?#]/ )[ 0 ] );
+
+}
+
 export function extensionOf( name ) {
 
-	const clean = name.split( /[?#]/ )[ 0 ];
+	const clean = name.split( /[?#]/ )[ 0 ].replace( /\.gz$/i, '' );
 	const base = baseName( clean );
 	const parts = base.toLowerCase().split( '.' );
 	if ( parts.length < 2 ) return '';

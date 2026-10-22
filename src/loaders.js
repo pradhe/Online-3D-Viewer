@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
 import './usdFixes.js';
-import { USD_EXTENSIONS, MODEL_EXTENSIONS, baseName, extensionOf, filesToAssets } from './assets.js';
+import { gunzipSync } from 'three/addons/libs/fflate.module.js';
+import { USD_EXTENSIONS, MODEL_EXTENSIONS, baseName, extensionOf, filesToAssets, isGzipped } from './assets.js';
 import { ViewerError, assertHasGeometry } from './errors.js';
 import { loadUsdScene } from './workerClient.js';
 
@@ -355,6 +356,48 @@ function usdWarnings( stage ) {
 
 }
 
+/** Downloads a file, reporting "n of m MB" while it arrives. */
+async function downloadWithProgress( url, { signal, onProgress, label } ) {
+
+	const response = await fetch( url, { signal } );
+
+	if ( ! response.ok ) {
+
+		throw new ViewerError( `Download failed (${ response.status }${ response.statusText ? ' ' + response.statusText : '' }).`, response.status === 404 ? 'Check the address.' : '' );
+
+	}
+
+	const total = Number( response.headers.get( 'content-length' ) ) || 0;
+	if ( ! response.body || ! onProgress ) return response.arrayBuffer();
+
+	const mb = ( n ) => ( n / 1048576 ).toFixed( 1 );
+	const chunks = [];
+	let received = 0;
+	const reader = response.body.getReader();
+
+	for ( ;; ) {
+
+		const { done, value } = await reader.read();
+		if ( done ) break;
+		chunks.push( value );
+		received += value.length;
+		onProgress( total ? `Downloading ${ label }… ${ mb( received ) } of ${ mb( total ) } MB` : `Downloading ${ label }… ${ mb( received ) } MB` );
+
+	}
+
+	const bytes = new Uint8Array( received );
+	let at = 0;
+	for ( const c of chunks ) {
+
+		bytes.set( c, at );
+		at += c.length;
+
+	}
+
+	return bytes.buffer;
+
+}
+
 /** Loads a model from a URL (same-origin or CORS-enabled). */
 export async function loadFromURL( url, { onProgress, signal } = {} ) {
 
@@ -368,6 +411,8 @@ export async function loadFromURL( url, { onProgress, signal } = {} ) {
 	}
 
 	if ( ext !== 'obj' ) {
+
+		if ( isGzipped( absolute ) ) throw new ViewerError( 'Compressed USD (.gz) is not supported.', 'Open the .usd/.usdc file itself, or a .usdz package.' );
 
 		const loaded = await loadUsdScene( { kind: 'url', url: absolute }, { onProgress, signal } );
 		assertHasGeometry( loaded.object, { format: ext, missing: loaded.missing } );
@@ -385,10 +430,20 @@ export async function loadFromURL( url, { onProgress, signal } = {} ) {
 
 	}
 
-	const response = await fetch( absolute, { signal } );
-	if ( ! response.ok ) throw new ViewerError( `Download failed (${ response.status }${ response.statusText ? ' ' + response.statusText : '' }).`, response.status === 404 ? 'Check the address.' : '' );
+	const name = baseName( absolute ).replace( /\.gz$/i, '' );
+	let buffer = await downloadWithProgress( absolute, { signal, onProgress, label: baseName( absolute ) } );
 
-	const buffer = await response.arrayBuffer();
+	// A server may already have undone the compression (Content-Encoding: gzip), so check the header.
+	const head = new Uint8Array( buffer, 0, 2 );
+
+	if ( isGzipped( absolute ) && head[ 0 ] === 0x1f && head[ 1 ] === 0x8b ) {
+
+		onProgress?.( 'Unpacking…' );
+		const unpacked = gunzipSync( new Uint8Array( buffer ) );
+		buffer = unpacked.buffer.slice( unpacked.byteOffset, unpacked.byteOffset + unpacked.byteLength );
+
+	}
+
 	const resourcePath = THREE.LoaderUtils.extractUrlBase( absolute );
 	const manager = createTrackingManager();
 
@@ -419,7 +474,7 @@ export async function loadFromURL( url, { onProgress, signal } = {} ) {
 
 	return {
 		object: result.object,
-		name: baseName( absolute ),
+		name,
 		format: ext,
 		size: buffer.byteLength,
 		warnings: result.warnings,
