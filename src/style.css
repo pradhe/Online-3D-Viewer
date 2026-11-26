@@ -457,6 +457,13 @@ body:not(.has-model) .view-toolbar { display: none; }
 	.help-grid { grid-template-columns: 1fr; }
 }
 
+@media (max-width: 860px) {
+	/* Phones: the assistant becomes a bottom sheet; 16px text stops iOS zooming into the input. */
+	.assistant { left: 8px; right: 8px; bottom: 8px; width: auto; height: min(70%, 520px); z-index: 6; }
+	.assistant-input textarea { font-size: 16px; }
+	#btn-assistant span { display: none; }
+}
+
 @media (max-width: 520px) {
 	.toolbar #btn-open span { display: none; }
 	.menu > summary::after { display: none; }
