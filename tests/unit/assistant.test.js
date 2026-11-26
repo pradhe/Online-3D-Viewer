@@ -110,7 +110,7 @@ describe( 'tools', () => {
 		const { meshes, ctx } = setup();
 		const { result, isError, changed } = await runTool( ctx, 'classify_parts', {} );
 
-		expect( isError ).toBe( false );
+		expect( isError, result.error ).toBe( false );
 		expect( changed ).toBe( true );
 		expect( result.labelled ).toEqual( { Wall: 1, Slab: 1 } );
 		expect( result.unknown ).toEqual( [ 'mesh-2', 'mesh-3' ] );
@@ -172,7 +172,7 @@ describe( 'tools', () => {
 		const original = sphere.geometry;
 
 		const { result, isError } = await runTool( ctx, 'simplify_parts', { ids: [ 'mesh-0' ], ratio: 0.5 } );
-		expect( isError ).toBe( false );
+		expect( isError, result.error ).toBe( false );
 		expect( result.trianglesAfter ).toBeLessThan( result.trianglesBefore * 0.8 );
 		expect( result.trianglesAfter ).toBeGreaterThan( 0 );
 		expect( sphere.geometry ).not.toBe( original );
