@@ -64,10 +64,10 @@ Goal: the tools an industry viewer is expected to have. Order within this tier b
 
 | # | Item | Area | What we do | Why it matters | Effort |
 | --- | --- | --- | --- | --- | --- |
-| 18 | Chat panel | AI | Docked panel with message history, streaming replies, a visible list of the actions taken, and a Stop button | The live feel; you always see what the assistant changed | M |
-| 19 | Model connection | AI | Send the chat and the command list to the Claude API with tool use; the model replies with commands the viewer runs. Two options: your own API key kept in the browser, or a small backend proxy that holds the key and limits use | A static GitHub Pages site cannot keep a secret key, so this choice decides cost and who can use it | M |
-| 20 | Scene awareness | AI | Send a compact summary only (object names, USD paths, materials, bounding boxes, current selection), never geometry or textures | "The left window" can be resolved to an object, and model files stay on the device | M |
-| 21 | Assistant safety | AI | Edits are undoable, bulk or destructive changes ask for confirmation, a cap on commands per message, and the assistant can only call viewer commands | Prevents surprises from a misread request | S |
+| 18 | Chat panel (started, first version: no streaming yet) | AI | Docked panel with message history, streaming replies, a visible list of the actions taken, and a Stop button | The live feel; you always see what the assistant changed | M |
+| 19 | Model connection (started, own key in the browser) | AI | Send the chat and the command list to the Claude API with tool use; the model replies with commands the viewer runs. Two options: your own API key kept in the browser, or a small backend proxy that holds the key and limits use | A static GitHub Pages site cannot keep a secret key, so this choice decides cost and who can use it | M |
+| 20 | Scene awareness (started, names, USD paths, sizes, selection; no materials yet) | AI | Send a compact summary only (object names, USD paths, materials, bounding boxes, current selection), never geometry or textures | "The left window" can be resolved to an object, and model files stay on the device | M |
+| 21 | Assistant safety (started, first version) | AI | Edits are undoable, bulk or destructive changes ask for confirmation, a cap on commands per message, and the assistant can only call viewer commands | Prevents surprises from a misread request | S |
 | 22 | Questions about the model | AI | Answer "how many meshes", "which materials are used", "what is this prim" from the metadata | Useful even when nothing is changed | S |
 | 23 | Assistant evaluation set | AI | Sample prompts with the expected commands, run in CI | Keeps behaviour stable when the model or the commands change | M |
 | 24 | Measuring | Features | Angles, areas, radius, unit switching, snap to vertex | Extends the distance tool already there | M |

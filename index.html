@@ -31,6 +31,7 @@
 			<symbol id="i-light" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.4.3.5.7.5 1.1v1h6v-1c0-.4.2-.8.5-1.1A6 6 0 0 0 12 3z"/></symbol>
 			<symbol id="i-dot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/></symbol>
 			<symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+			<symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 9h8M8 12h5"/></symbol>
 		</defs>
 	</svg>
 
@@ -71,6 +72,7 @@
 
 			<button class="icon-btn needs-model" id="btn-screenshot" title="Save screenshot (PNG)" aria-label="Save screenshot"><svg><use href="#i-camera"/></svg></button>
 			<button class="icon-btn" id="btn-fullscreen" title="Fullscreen" aria-label="Fullscreen"><svg><use href="#i-max"/></svg></button>
+			<button class="btn toggle needs-model" id="btn-assistant" title="AI assistant: classify, hide and simplify parts by chat"><svg><use href="#i-chat"/></svg><span>Assistant</span></button>
 			<button class="icon-btn" id="btn-help" title="Controls & shortcuts (?)" aria-label="Help"><svg><use href="#i-help"/></svg></button>
 		</nav>
 
@@ -129,6 +131,22 @@
 				<button class="btn small toggle" id="btn-projection" title="Perspective / Orthographic (P)">Persp</button>
 				<button class="icon-btn toggle" id="btn-autorotate" title="Auto-rotate" aria-label="Auto-rotate"><svg><use href="#i-orbit"/></svg></button>
 				<button class="icon-btn toggle" id="btn-measure" title="Measure distance (M)" aria-label="Measure"><svg><use href="#i-ruler"/></svg></button>
+			</div>
+
+			<div class="assistant" id="assistant" hidden role="complementary" aria-label="AI assistant">
+				<div class="assistant-head">
+					<b>Assistant</b>
+					<span class="assistant-actions">
+						<button class="btn small" id="assistant-undo" type="button" title="Undo the assistant's last change" disabled>Undo</button>
+						<button class="icon-btn" id="assistant-settings" type="button" title="Assistant settings" aria-label="Assistant settings"><svg><use href="#i-sliders"/></svg></button>
+						<button class="icon-btn" id="assistant-close" type="button" title="Close" aria-label="Close assistant"><svg><use href="#i-x"/></svg></button>
+					</span>
+				</div>
+				<div class="assistant-log" id="assistant-log" aria-live="polite"></div>
+				<form class="assistant-input" id="assistant-form">
+					<textarea id="assistant-text" rows="2" placeholder="e.g. Classify the parts, then hide anything under 5 cm" aria-label="Message to the assistant"></textarea>
+					<button class="btn primary" id="assistant-send" type="submit">Send</button>
+				</form>
 			</div>
 
 			<div class="drop-overlay" id="drop-overlay"><div>Drop to open</div></div>
@@ -256,6 +274,26 @@
 			<div class="root-list" id="root-list"></div>
 			<div class="dialog-actions">
 				<button class="btn" value="cancel">Cancel</button>
+			</div>
+		</form>
+	</dialog>
+
+	<dialog id="assistant-dialog">
+		<form method="dialog">
+			<h2>Assistant settings</h2>
+			<p class="muted small">The assistant uses Claude with your own Anthropic API key. The key is kept in this browser only. When you send a message, the chat plus object names, USD paths and sizes go to Anthropic &mdash; never the geometry or textures.</p>
+			<label class="field">
+				<span>API key</span>
+				<input type="password" id="assistant-key" autocomplete="off" spellcheck="false" placeholder="sk-ant-…" />
+			</label>
+			<label class="field">
+				<span>Model</span>
+				<input type="text" id="assistant-model" autocomplete="off" spellcheck="false" />
+			</label>
+			<div class="dialog-actions">
+				<button class="btn" value="forget" formnovalidate>Forget key</button>
+				<button class="btn" value="cancel" formnovalidate>Cancel</button>
+				<button class="btn primary" value="save">Save</button>
 			</div>
 		</form>
 	</dialog>
