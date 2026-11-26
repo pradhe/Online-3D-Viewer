@@ -177,6 +177,7 @@ describe( 'tools', () => {
 		expect( result.trianglesAfter ).toBeGreaterThan( 0 );
 		expect( sphere.geometry ).not.toBe( original );
 		expect( sphere.geometry.attributes.normal ).toBeDefined();
+		expect( sphere.geometry.attributes.uv ).toBeDefined(); // textures survive
 
 		await runTool( ctx, 'undo_last', {} );
 		expect( sphere.geometry ).toBe( original );

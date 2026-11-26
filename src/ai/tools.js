@@ -7,11 +7,10 @@
  */
 import * as THREE from 'three';
 import { SimplifyModifier } from 'three/addons/modifiers/SimplifyModifier.js';
-import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { LABELS, UNKNOWN, classify, describeMesh, roundDescriptor } from './geometry.js';
 
 const MAX_LISTED = 50;
-const MAX_SIMPLIFY_VERTICES = 60000; // three's SimplifyModifier gets slow beyond this
+const MAX_SIMPLIFY_VERTICES = 2000000; // keeps one call responsive; meshoptimizer itself is fast
 
 // ------------------------------------------------------------------ scene access
 
@@ -250,7 +249,7 @@ tool( 'hide_small_parts',
 	} );
 
 tool( 'simplify_parts',
-	`Reduce the triangles of parts to about \`ratio\` of the original (0.05–0.95). Texture coordinates are dropped, so textured parts lose their texture. Parts with several materials are skipped. At most ${ MAX_SIMPLIFY_VERTICES.toLocaleString( 'en' ) } vertices per call. Asks the user first.`,
+	`Reduce the triangles of parts to about \`ratio\` of the original (0.05–0.95), keeping normals and texture coordinates. Parts with several materials are skipped. At most ${ MAX_SIMPLIFY_VERTICES.toLocaleString( 'en' ) } vertices per call. Asks the user first.`,
 	{ ids: idList, ratio: { type: 'number' } },
 	[ 'ids', 'ratio' ],
 	async ( ctx, { ids, ratio } ) => {
@@ -266,16 +265,17 @@ tool( 'simplify_parts',
 
 		let before = 0;
 		let after = 0;
-		const swaps = usable.map( ( mesh ) => {
+		const swaps = [];
+		for ( const mesh of usable ) {
 
 			const oldGeometry = mesh.geometry;
-			const newGeometry = simplifyGeometry( oldGeometry, ratio );
+			const newGeometry = await simplifyGeometry( oldGeometry, ratio );
 			before += triangleCount( oldGeometry );
 			after += triangleCount( newGeometry );
 			mesh.geometry = newGeometry;
-			return { mesh, oldGeometry, newGeometry };
+			swaps.push( { mesh, oldGeometry, newGeometry } );
 
-		} );
+		}
 
 		ctx.history.push( {
 			label: `Simplify ${ usable.length } part(s)`,
@@ -347,31 +347,11 @@ function geometryInUse( viewer, geometry ) {
 
 }
 
-/** Positions only (normals are recomputed, UVs dropped), so vertices merge and the mesh can collapse. */
-export function simplifyGeometry( geometry, ratio ) {
+/** meshoptimizer (three's SimplifyModifier, async since r18x); normals and UVs are kept and weigh in the error. */
+export async function simplifyGeometry( geometry, ratio ) {
 
-	const position = geometry.attributes.position;
-	const positions = new Float32Array( position.count * 3 );
-	for ( let i = 0; i < position.count; i ++ ) {
-
-		positions[ 3 * i ] = position.getX( i );
-		positions[ 3 * i + 1 ] = position.getY( i );
-		positions[ 3 * i + 2 ] = position.getZ( i );
-
-	}
-
-	const plain = new THREE.BufferGeometry();
-	plain.setAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
-	if ( geometry.index ) plain.setIndex( Array.from( geometry.index.array ) );
-
-	// Count after merging: flat-shaded meshes repeat each corner per face.
-	const merged = mergeVertices( plain );
-	plain.dispose();
-	const remove = Math.floor( merged.attributes.position.count * ( 1 - ratio ) );
-	const result = new SimplifyModifier().modify( merged, remove );
-	merged.dispose();
-	result.deleteAttribute( 'normal' );
-	result.computeVertexNormals();
+	const remove = Math.floor( geometry.attributes.position.count * ( 1 - ratio ) );
+	const result = await new SimplifyModifier().modify( geometry, remove );
 	result.computeBoundingBox();
 	result.computeBoundingSphere();
 	return result;
