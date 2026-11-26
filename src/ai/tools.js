@@ -6,7 +6,6 @@
  * `viewer` needs: model, meshes, select( objects ), focus( objects ), setVisible( objects, visible ), invalidate().
  */
 import * as THREE from 'three';
-import { SimplifyModifier } from 'three/addons/modifiers/SimplifyModifier.js';
 import { LABELS, UNKNOWN, classify, describeMesh, roundDescriptor } from './geometry.js';
 
 const MAX_LISTED = 50;
@@ -347,9 +346,13 @@ function geometryInUse( viewer, geometry ) {
 
 }
 
-/** meshoptimizer (three's SimplifyModifier, async since r18x); normals and UVs are kept and weigh in the error. */
+/**
+ * meshoptimizer (three's SimplifyModifier, async since r18x); normals and UVs are kept and weigh in the error.
+ * Imported on first use so its WASM is not compiled while the page starts.
+ */
 export async function simplifyGeometry( geometry, ratio ) {
 
+	const { SimplifyModifier } = await import( 'three/addons/modifiers/SimplifyModifier.js' );
 	const remove = Math.floor( geometry.attributes.position.count * ( 1 - ratio ) );
 	const result = await new SimplifyModifier().modify( geometry, remove );
 	result.computeBoundingBox();
