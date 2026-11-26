@@ -8,6 +8,7 @@ import { Editor } from './editor.js';
 import { ViewerError, formatError, webglAvailable } from './errors.js';
 import { deviceLimits, disposeObject, fitToBudget, formatMemory } from './memory.js';
 import { reportError, reportingAvailable, reportingEnabled, setReportingEnabled } from './reporting.js';
+import { initAssistant } from './ai/assistant.js';
 
 const $ = ( sel ) => document.querySelector( sel );
 const $$ = ( sel ) => [ ...document.querySelectorAll( sel ) ];
@@ -1025,6 +1026,7 @@ function renderSelection() {
 			<dt>Triangles</dt><dd>${ fmtInt( triangles ) }</dd>
 			${ single && single.children.length ? `<dt>Children</dt><dd>${ fmtInt( single.children.length ) }</dd>` : '' }
 			<dt>Size</dt><dd>${ fmtVec( size ) }</dd>
+			${ single?.userData.aiClass ? `<dt>Class</dt><dd>${ escapeHtml( single.userData.aiClass ) }</dd>` : '' }
 		</dl>
 		<div class="button-row">
 			<button class="btn small" data-act="focus">Focus</button>
@@ -1264,6 +1266,30 @@ viewer.addEventListener( 'transformchange', () => {
 
 	} );
 
+} );
+
+// ======================================================================= assistant
+
+/** USD stages declare their unit (fallback 0.01 = centimetres, per the USD spec); glTF is metres; OBJ has none, so assume metres. */
+function modelUnits() {
+
+	const meta = state.file?.usd;
+	if ( ! meta ) return { metresPerUnit: 1, source: state.file ? 'assumed metres' : 'no model' };
+	const authored = Number( meta.stage.find( ( [ k ] ) => k === 'metersPerUnit' )?.[ 1 ] );
+	return authored > 0 ? { metresPerUnit: authored, source: 'from the USD metersPerUnit' } : { metresPerUnit: 0.01, source: 'USD default, not authored in the file' };
+
+}
+
+initAssistant( {
+	viewer,
+	getUnits: modelUnits,
+	getModelName: () => ( state.file ? modelStem() : '' ),
+	onChange: () => {
+
+		renderSelection();
+		renderModelInfo();
+
+	},
 } );
 
 // ======================================================================= edits
